@@ -1,0 +1,124 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Contact Us — Professional Advisory Group</title>
+<meta name="description" content="Contact Rev. Jon M. Corey and the Professional Advisory Group. Request a complimentary consultation for pastoral, advisory, or ministerial services.">
+<link rel="stylesheet" href="/css/styles.css">
+<body data-page="contact">
+<div id="site-header"></div>
+
+<div class="page-head">
+  <div class="container">
+    <h1>Contact Us</h1>
+    <p>Have a question or a special set of circumstances? Send a message and Rev. Corey's
+    office will respond promptly. Emergency and short-notice requests are welcome.</p>
+  </div>
+</div>
+
+<section class="block">
+  <div class="container" style="display:grid;grid-template-columns:1.3fr .7fr;gap:40px;align-items:start;">
+    <div class="card">
+      <h2 class="mt-0">Send an Inquiry</h2>
+      <div id="alert" class="alert"></div>
+      <form id="contact-form">
+        <div class="grid-2">
+          <div class="form-row">
+            <label for="name">Full Name <span class="req">*</span></label>
+            <input type="text" id="name" name="name" required autocomplete="name">
+          </div>
+          <div class="form-row">
+            <label for="phone">Phone Number <span class="req">*</span></label>
+            <input type="tel" id="phone" name="phone" required autocomplete="tel" placeholder="(480) 000-0000">
+          </div>
+        </div>
+        <div class="form-row">
+          <label for="email">Email Address <span class="req">*</span></label>
+          <input type="email" id="email" name="email" required autocomplete="email" placeholder="you@example.com">
+        </div>
+        <div class="form-row">
+          <label for="service">What can we help with?</label>
+          <select id="service" name="service">
+            <option value="">Select a service (optional)</option>
+            <option>Marriage / Wedding Officiant</option>
+            <option>Baptism or Dedication</option>
+            <option>Renewal of Vows</option>
+            <option>Memorial or Funeral Support</option>
+            <option>Pre-Marriage Planning</option>
+            <option>Individual, Couples, or Family Guidance</option>
+            <option>Hospitalization / Hospice Support</option>
+            <option>Relationship Crisis</option>
+            <option>Non-Traditional / Other</option>
+          </select>
+        </div>
+        <div class="form-row">
+          <label for="message">Message</label>
+          <textarea id="message" name="message" placeholder="Tell us a little about your situation, timing, and any special needs."></textarea>
+        </div>
+        <button type="submit" class="btn btn-primary" id="submit-btn">Send Inquiry</button>
+      </form>
+    </div>
+
+    <aside class="stack">
+      <div class="card">
+        <h3 class="mt-0">Direct Contact</h3>
+        <p class="muted" style="margin:.2em 0;">Rev. Jon M. Corey, PhD</p>
+        <p style="margin:.2em 0;"><strong>Phone:</strong> <a href="tel:+14803886606">480.388.6606</a></p>
+        <p style="margin:.2em 0;"><strong>Email:</strong> <a href="mailto:jonmichaelcorey@gmail.com">jonmichaelcorey@gmail.com</a></p>
+        <hr class="divider">
+        <p class="muted" style="font-size:.92rem;">Prefer to schedule directly? <a href="/calendar">View available times &rarr;</a></p>
+      </div>
+      <div class="card" style="background:var(--cream-2);">
+        <h3 class="mt-0">Good to Know</h3>
+        <ul class="credentials" style="margin-top:6px;">
+          <li>All faiths &amp; cultures welcome</li>
+          <li>No religious affiliation or obligation</li>
+          <li>Emergency availability</li>
+          <li>Complimentary planning session</li>
+        </ul>
+      </div>
+    </aside>
+  </div>
+</section>
+
+<div id="site-footer"></div>
+<script src="/js/layout.js"></script>
+<script>
+(function () {
+  var form = document.getElementById("contact-form");
+  var alertBox = document.getElementById("alert");
+  var btn = document.getElementById("submit-btn");
+
+  function showAlert(msg, kind) {
+    alertBox.className = "alert show " + (kind === "ok" ? "alert-ok" : "alert-err");
+    alertBox.textContent = msg;
+    alertBox.scrollIntoView({ behavior: "smooth", block: "center" });
+  }
+
+  form.addEventListener("submit", async function (e) {
+    e.preventDefault();
+    btn.disabled = true; btn.textContent = "Sending…";
+    var payload = {
+      name: form.name.value, phone: form.phone.value, email: form.email.value,
+      service: form.service.value, message: form.message.value
+    };
+    try {
+      var res = await fetch("/api/contact", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      var data = await res.json();
+      if (data.ok) {
+        showAlert("Thank you, " + payload.name.split(" ")[0] +
+          "! Your inquiry has been received. We'll be in touch soon.", "ok");
+        form.reset();
+      } else {
+        showAlert(data.error || "Something went wrong. Please try again.", "err");
+      }
+    } catch (err) {
+      showAlert("Network error. Please try again or call 480.388.6606.", "err");
+    } finally {
+      btn.disabled = false; btn.textContent = "Send Inquiry";
+    }
+  });
+})();
+</script>
+</body>

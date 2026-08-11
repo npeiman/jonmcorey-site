@@ -1,0 +1,268 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Secure Payment — Professional Advisory Group</title>
+<meta name="robots" content="noindex,nofollow">
+<link rel="stylesheet" href="/css/styles.css">
+<script src="https://js.stripe.com/v3/"></script>
+<body data-page="checkout">
+<div id="site-header"></div>
+
+<div class="page-head">
+  <div class="container">
+    <h1>Secure Payment</h1>
+    <p>Enter your card details below to complete your booking. Your payment is processed
+    securely by Stripe — card details are never stored on our servers.</p>
+  </div>
+</div>
+
+<section class="block">
+  <div class="container" style="display:grid;grid-template-columns:1fr .8fr;gap:36px;align-items:start;">
+    <div class="card">
+      <h2 class="mt-0">Payment Details</h2>
+      <div id="alert" class="alert"></div>
+      <div id="no-stripe" class="alert alert-info" style="display:none;">
+        Online card payment isn't enabled yet. Please contact the office at
+        <a href="tel:+14803886606">480.388.6606</a> to arrange payment — your booking is reserved.
+      </div>
+
+      <form id="pay-form" style="display:none;">
+        <div class="section-label">Name on Card</div>
+        <div class="grid-2">
+          <div class="form-row">
+            <label for="first-name">First Name <span class="req">*</span></label>
+            <input type="text" id="first-name" autocomplete="cc-given-name" required>
+          </div>
+          <div class="form-row">
+            <label for="last-name">Last Name <span class="req">*</span></label>
+            <input type="text" id="last-name" autocomplete="cc-family-name" required>
+          </div>
+        </div>
+
+        <div class="section-label">Billing Address</div>
+        <div class="form-row">
+          <label for="addr1">Address Line 1 <span class="req">*</span></label>
+          <input type="text" id="addr1" autocomplete="address-line1" placeholder="Street address" required>
+        </div>
+        <div class="form-row">
+          <label for="addr2">Address Line 2</label>
+          <input type="text" id="addr2" autocomplete="address-line2" placeholder="Apartment, suite, unit (optional)">
+        </div>
+        <div class="grid-2">
+          <div class="form-row">
+            <label for="city">City <span class="req">*</span></label>
+            <input type="text" id="city" autocomplete="address-level2" required>
+          </div>
+          <div class="form-row">
+            <label for="state">State <span class="req">*</span></label>
+            <input type="text" id="state" autocomplete="address-level1" required>
+          </div>
+        </div>
+        <div class="grid-2">
+          <div class="form-row">
+            <label for="zip">ZIP / Postal Code <span class="req">*</span></label>
+            <input type="text" id="zip" autocomplete="postal-code" required>
+          </div>
+          <div class="form-row">
+            <label for="country">Country</label>
+            <input type="text" id="country" value="United States" autocomplete="country-name">
+          </div>
+        </div>
+
+        <div class="section-label">Card Information <span class="card-brands">VISA · MASTERCARD · AMEX · DISCOVER</span></div>
+        <div class="form-row">
+          <label for="card-number">Card Number <span class="req">*</span></label>
+          <div id="card-number" class="stripe-el"></div>
+          <div class="field-error" id="card-number-error"></div>
+        </div>
+        <div class="grid-2">
+          <div class="form-row">
+            <label for="card-expiry">Expiration Date <span class="req">*</span></label>
+            <div id="card-expiry" class="stripe-el"></div>
+            <div class="field-error" id="card-expiry-error"></div>
+          </div>
+          <div class="form-row">
+            <label for="card-cvc">CVC / Security Code <span class="req">*</span></label>
+            <div id="card-cvc" class="stripe-el"></div>
+            <div class="field-error" id="card-cvc-error"></div>
+          </div>
+        </div>
+
+        <button type="submit" class="btn btn-primary mt-2" id="pay-btn" style="width:100%;">Pay</button>
+        <p class="pay-lock mt-2">🔒 Secured by Stripe. Your card details are encrypted and sent directly to Stripe.</p>
+      </form>
+
+      <div id="loading" class="muted">Preparing secure payment…</div>
+    </div>
+
+    <aside>
+      <div class="card">
+        <h3 class="mt-0">Order Summary</h3>
+        <div id="summary-loading" class="muted">Loading…</div>
+        <div id="summary" style="display:none;">
+          <p style="margin:.3em 0;"><strong>One-Hour Session with</strong><br>Rev. Jon M. Corey, PhD</p>
+          <hr class="divider">
+          <p style="margin:.3em 0;"><span class="muted">Date</span><br><strong id="s-date"></strong></p>
+          <p style="margin:.3em 0;"><span class="muted">Time</span><br><strong id="s-time"></strong></p>
+          <p style="margin:.3em 0;" id="s-service-wrap"><span class="muted">Service</span><br><strong id="s-service"></strong></p>
+          <hr class="divider">
+          <p style="display:flex;justify-content:space-between;font-size:1.2rem;">
+            <span><strong>Total</strong></span><span><strong id="s-price"></strong></span>
+          </p>
+        </div>
+      </div>
+      <p class="text-center mt-2"><a href="/calendar" class="btn btn-ghost btn-sm">&larr; Cancel and return to calendar</a></p>
+    </aside>
+  </div>
+</section>
+
+<div id="site-footer"></div>
+<script src="/js/layout.js"></script>
+<script>
+(function () {
+  var $ = function (id) { return document.getElementById(id); };
+  var bookingId = new URLSearchParams(location.search).get("booking_id");
+  var stripe = null, cardNumber = null, clientSecret = null, amountDisplay = "";
+
+  function showAlert(msg, kind) {
+    var a = $("alert");
+    a.className = "alert show " + (kind === "ok" ? "alert-ok" : kind === "info" ? "alert-info" : "alert-err");
+    a.textContent = msg;
+    a.scrollIntoView({ behavior: "smooth", block: "center" });
+  }
+
+  function fillSummary(s) {
+    $("summary-loading").style.display = "none";
+    $("s-date").textContent = s.date_pretty;
+    $("s-time").textContent = s.range_label + " (1 hour)";
+    if (s.service) { $("s-service").textContent = s.service; } else { $("s-service-wrap").style.display = "none"; }
+    $("s-price").textContent = s.amount_display;
+    $("summary").style.display = "block";
+    amountDisplay = s.amount_display;
+    // Prefill name from the booking
+    if (s.name) {
+      var parts = s.name.trim().split(/\s+/);
+      $("first-name").value = parts.shift() || "";
+      $("last-name").value = parts.join(" ");
+    }
+  }
+
+  async function init() {
+    if (!bookingId) { $("loading").style.display = "none"; showAlert("No booking specified.", "err"); return; }
+    var cfg;
+    try { cfg = await (await fetch("/api/config")).json(); } catch (e) { cfg = {}; }
+    if (!cfg.stripe_configured) {
+      // Preview mode: show the full screen layout, disable the card area + pay button.
+      $("loading").style.display = "none";
+      $("no-stripe").style.display = "block";
+      try {
+        var r0 = await (await fetch("/api/payment/create-intent", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ booking_id: bookingId })
+        })).json();
+        if (r0.summary) fillSummary(r0.summary);
+      } catch (e) {}
+      $("pay-form").style.display = "block";
+      ["card-number", "card-expiry", "card-cvc"].forEach(function (id) {
+        $(id).innerHTML = '<span style="color:#9b968e;">Enabled once Stripe is connected</span>';
+      });
+      var b = $("pay-btn"); b.disabled = true; b.textContent = "Payment disabled — connect Stripe in Admin";
+      return;
+    }
+    if (typeof Stripe === "undefined") {
+      $("loading").style.display = "none";
+      showAlert("Could not load the secure payment library. Please check your internet connection and refresh.", "err");
+      return;
+    }
+
+    var r;
+    try {
+      r = await (await fetch("/api/payment/create-intent", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ booking_id: bookingId })
+      })).json();
+    } catch (e) {
+      $("loading").style.display = "none"; showAlert("Could not start payment. Please try again.", "err"); return;
+    }
+    if (!r.ok) { $("loading").style.display = "none"; showAlert(r.error || "Could not start payment.", "err"); return; }
+    if (r.summary) fillSummary(r.summary);
+    if (r.already_paid) {
+      $("loading").style.display = "none";
+      showAlert("This booking is already paid. Redirecting…", "ok");
+      setTimeout(function () { location.href = "/thank-you.html?status=paid"; }, 1200);
+      return;
+    }
+
+    clientSecret = r.client_secret;
+    stripe = Stripe(r.publishable_key);
+    var elements = stripe.elements();
+    var style = {
+      base: {
+        fontSize: "16px", color: "#2b2b2b", fontFamily: "-apple-system, Segoe UI, Roboto, sans-serif",
+        "::placeholder": { color: "#9b968e" }
+      },
+      invalid: { color: "#b23a3a" }
+    };
+    cardNumber = elements.create("cardNumber", { style: style, showIcon: true });
+    var cardExpiry = elements.create("cardExpiry", { style: style });
+    var cardCvc = elements.create("cardCvc", { style: style });
+    cardNumber.mount("#card-number");
+    cardExpiry.mount("#card-expiry");
+    cardCvc.mount("#card-cvc");
+
+    function wireError(el, id) {
+      el.on("change", function (ev) { $(id).textContent = ev.error ? ev.error.message : ""; });
+    }
+    wireError(cardNumber, "card-number-error");
+    wireError(cardExpiry, "card-expiry-error");
+    wireError(cardCvc, "card-cvc-error");
+
+    $("loading").style.display = "none";
+    $("pay-form").style.display = "block";
+    $("pay-btn").textContent = "Pay " + amountDisplay;
+  }
+
+  $("pay-form").addEventListener("submit", async function (e) {
+    e.preventDefault();
+    var required = ["first-name", "last-name", "addr1", "city", "state", "zip"];
+    for (var i = 0; i < required.length; i++) {
+      if (!$(required[i]).value.trim()) { showAlert("Please complete all required billing fields.", "err"); return; }
+    }
+    var btn = $("pay-btn"); btn.disabled = true; btn.textContent = "Processing…";
+    var name = ($("first-name").value + " " + $("last-name").value).trim();
+    var result = await stripe.confirmCardPayment(clientSecret, {
+      payment_method: {
+        card: cardNumber,
+        billing_details: {
+          name: name,
+          address: {
+            line1: $("addr1").value, line2: $("addr2").value,
+            city: $("city").value, state: $("state").value,
+            postal_code: $("zip").value, country: "US"
+          }
+        }
+      }
+    });
+    if (result.error) {
+      showAlert(result.error.message || "Payment could not be completed. Please check your details.", "err");
+      btn.disabled = false; btn.textContent = "Pay " + amountDisplay;
+      return;
+    }
+    if (result.paymentIntent && result.paymentIntent.status === "succeeded") {
+      // Have the server verify with Stripe and finalize the booking + emails.
+      try {
+        await fetch("/api/payment/confirm", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ booking_id: bookingId })
+        });
+      } catch (e) {}
+      location.href = "/thank-you.html?status=paid";
+    } else {
+      showAlert("Payment is processing. You'll receive confirmation shortly.", "info");
+      btn.disabled = false; btn.textContent = "Pay " + amountDisplay;
+    }
+  });
+
+  init();
+})();
+</script>
+</body>

@@ -1,0 +1,212 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Checkout — Book Your Session</title>
+<meta name="description" content="Confirm and pay for your one-hour session with Rev. Jon M. Corey.">
+<link rel="stylesheet" href="/css/styles.css">
+<body data-page="checkout">
+<div id="site-header"></div>
+
+<div class="page-head">
+  <div class="container">
+    <h1>Confirm Your Booking</h1>
+    <p>Review your selected time and enter your details to complete your reservation.</p>
+  </div>
+</div>
+
+<section class="block">
+  <div class="container" style="display:grid;grid-template-columns:1fr .8fr;gap:36px;align-items:start;">
+    <div class="card">
+      <h2 class="mt-0">Your Details</h2>
+      <div id="alert" class="alert"></div>
+      <form id="checkout-form">
+        <div class="grid-2">
+          <div class="form-row">
+            <label for="name">Full Name <span class="req">*</span></label>
+            <input type="text" id="name" required autocomplete="name">
+          </div>
+          <div class="form-row">
+            <label for="phone">Phone Number <span class="req">*</span></label>
+            <input type="tel" id="phone" required autocomplete="tel">
+          </div>
+        </div>
+        <div class="form-row">
+          <label for="email">Email Address <span class="req">*</span></label>
+          <input type="email" id="email" required autocomplete="email">
+        </div>
+        <div class="form-row">
+          <label for="address">Mailing Address</label>
+          <input type="text" id="address" autocomplete="street-address" placeholder="Street, City, State ZIP">
+        </div>
+        <div class="form-row">
+          <label for="service">Type of Service</label>
+          <select id="service">
+            <option value="">Select a service (optional)</option>
+            <option>Marriage / Wedding Officiant</option>
+            <option>Baptism or Dedication</option>
+            <option>Renewal of Vows</option>
+            <option>Memorial or Funeral Support</option>
+            <option>Pre-Marriage Planning</option>
+            <option>Individual, Couples, or Family Guidance</option>
+            <option>Hospitalization / Hospice Support</option>
+            <option>Relationship Crisis</option>
+            <option>Complimentary Consultation</option>
+            <option>Non-Traditional / Other</option>
+          </select>
+        </div>
+        <div class="form-row">
+          <label for="notes">Notes for Rev. Corey</label>
+          <textarea id="notes" placeholder="Anything that would help us prepare for your session."></textarea>
+        </div>
+        <button type="submit" class="btn btn-primary" id="submit-btn" disabled>Review Booking</button>
+        <p class="hint" id="pay-note"></p>
+      </form>
+    </div>
+
+    <aside>
+      <div class="card">
+        <h3 class="mt-0">Order Summary</h3>
+        <div id="summary-loading" class="muted">Loading selected time…</div>
+        <div id="summary" style="display:none;">
+          <p style="margin:.3em 0;"><strong>One-Hour Session with</strong><br>Rev. Jon M. Corey, PhD</p>
+          <hr class="divider">
+          <p style="margin:.3em 0;"><span class="muted">Date</span><br><strong id="s-date"></strong></p>
+          <p style="margin:.3em 0;"><span class="muted">Time</span><br><strong id="s-time"></strong></p>
+          <hr class="divider">
+          <p style="display:flex;justify-content:space-between;font-size:1.2rem;">
+            <span><strong>Total</strong></span><span><strong id="s-price"></strong></span>
+          </p>
+        </div>
+        <div id="summary-error" style="display:none;" class="alert show alert-err">
+          That time could not be found or is no longer available.
+          <a href="/calendar">Choose another time &rarr;</a>
+        </div>
+      </div>
+      <p class="hint text-center mt-2">🔒 Payments are processed securely by Stripe.</p>
+      <p class="text-center mt-1"><a href="/calendar" class="btn btn-ghost btn-sm">&larr; Back to Calendar</a></p>
+    </aside>
+  </div>
+</section>
+
+<!-- Confirmation modal -->
+<div class="modal-backdrop" id="confirm-modal">
+  <div class="modal">
+    <h3>Confirm Your Booking</h3>
+    <p id="confirm-text" class="muted"></p>
+    <p class="muted" id="confirm-pay"></p>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" id="modal-cancel">Go Back</button>
+      <button class="btn btn-primary" id="modal-confirm">Yes, Confirm &amp; Continue</button>
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+<script src="/js/layout.js"></script>
+<script>
+(function () {
+  var params = new URLSearchParams(location.search);
+  var qDate = params.get("date");
+  var qHour = params.get("hour");
+  var form = document.getElementById("checkout-form");
+  var btn = document.getElementById("submit-btn");
+  var alertBox = document.getElementById("alert");
+  var payNote = document.getElementById("pay-note");
+  var modal = document.getElementById("confirm-modal");
+  var quote = null, stripeConfigured = false;
+
+  function showAlert(msg, kind) {
+    alertBox.className = "alert show " + (kind === "ok" ? "alert-ok" : "alert-err");
+    alertBox.textContent = msg;
+    alertBox.scrollIntoView({ behavior: "smooth", block: "center" });
+  }
+
+  async function init() {
+    if (!qDate || !qHour) {
+      document.getElementById("summary-loading").style.display = "none";
+      document.getElementById("summary-error").style.display = "block";
+      return;
+    }
+    try {
+      var cfg = await (await fetch("/api/config")).json();
+      stripeConfigured = cfg.stripe_configured;
+      var res = await (await fetch("/api/availability/quote?date=" + encodeURIComponent(qDate) +
+        "&hour=" + encodeURIComponent(qHour))).json();
+      document.getElementById("summary-loading").style.display = "none";
+      if (!res.ok) { document.getElementById("summary-error").style.display = "block"; return; }
+      quote = res.quote;
+      document.getElementById("s-date").textContent = quote.date_pretty;
+      document.getElementById("s-time").textContent = quote.start_label + " – " + quote.end_label + " (1 hour)";
+      document.getElementById("s-price").textContent = quote.price_cents > 0 ? quote.price_display : "Complimentary";
+      document.getElementById("summary").style.display = "block";
+      btn.disabled = false;
+      payNote.textContent = quote.price_cents > 0
+        ? (stripeConfigured
+            ? "On the next step you'll confirm, then enter your card details on our secure payment page to pay " + quote.price_display + "."
+            : "Online payment isn't enabled yet; your booking will be reserved and the office will arrange payment.")
+        : "This session is complimentary — no payment required.";
+    } catch (err) {
+      document.getElementById("summary-loading").style.display = "none";
+      document.getElementById("summary-error").style.display = "block";
+    }
+  }
+
+  // Step 1: show the confirmation modal
+  form.addEventListener("submit", function (e) {
+    e.preventDefault();
+    if (!quote) return;
+    if (!form.name.value.trim() || !form.email.value.trim() || !form.phone.value.trim()) {
+      showAlert("Please fill in your name, email, and phone number.", "err");
+      return;
+    }
+    document.getElementById("confirm-text").textContent =
+      "You're booking a one-hour session with Rev. Jon M. Corey on " +
+      quote.date_pretty + " at " + quote.start_label + " – " + quote.end_label + ". Do you wish to confirm this booking?";
+    document.getElementById("confirm-pay").textContent = quote.price_cents > 0
+      ? (stripeConfigured
+          ? "You will now be taken to our secure payment page to enter your card details and pay " + quote.price_display + "."
+          : "Your session will be reserved and the office will contact you to arrange the " + quote.price_display + " payment.")
+      : "No payment is required for this complimentary session.";
+    modal.classList.add("show");
+  });
+
+  document.getElementById("modal-cancel").addEventListener("click", function () {
+    modal.classList.remove("show");
+  });
+
+  // Step 2: confirmed — create booking and go to Stripe / thank-you
+  document.getElementById("modal-confirm").addEventListener("click", async function () {
+    var mc = document.getElementById("modal-confirm");
+    mc.disabled = true; mc.textContent = "Processing…";
+    var payload = {
+      date: quote.date, hour: quote.hour,
+      name: form.name.value, phone: form.phone.value, email: form.email.value,
+      address: document.getElementById("address").value,
+      service: document.getElementById("service").value,
+      notes: document.getElementById("notes").value
+    };
+    try {
+      var res = await fetch("/api/bookings", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      var data = await res.json();
+      if (data.ok && data.payment_url) {
+        window.location.href = data.payment_url;                // custom card page
+      } else if (data.ok) {
+        window.location.href = "/thank-you.html?status=reserved";
+      } else {
+        modal.classList.remove("show");
+        showAlert(data.error || "Something went wrong. Please try again.", "err");
+      }
+    } catch (err) {
+      modal.classList.remove("show");
+      showAlert("Network error. Please try again or call 480.388.6606.", "err");
+    } finally {
+      mc.disabled = false; mc.textContent = "Yes, Confirm & Continue";
+    }
+  });
+
+  init();
+})();
+</script>
+</body>

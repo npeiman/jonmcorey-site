@@ -1,0 +1,25 @@
+[Unit]
+Description=Professional Advisory Group website (development)
+After=network.target
+
+[Service]
+Type=simple
+User=pag
+Group=pag
+WorkingDirectory=/opt/pag-dev/website
+Environment=HOST=127.0.0.1
+Environment=PORT=8010
+Environment=PAG_DB=/opt/pag-dev/data/pag.db
+ExecStart=/usr/bin/python3 /opt/pag-dev/website/server.py
+Restart=on-failure
+RestartSec=3
+
+# Hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/opt/pag-dev/data
+
+[Install]
+WantedBy=multi-user.target

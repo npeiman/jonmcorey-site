@@ -1,0 +1,59 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Schedule a Session — Professional Advisory Group</title>
+<meta name="description" content="View Rev. Jon M. Corey's monthly availability and book a one-hour session online.">
+<link rel="stylesheet" href="/css/styles.css">
+<body data-page="calendar">
+<div id="site-header"></div>
+
+<div class="page-head">
+  <div class="container">
+    <h1>Schedule a Session</h1>
+    <p>Select an available day on the calendar, then choose an open one-hour time.
+    You'll confirm your details and complete payment on the secure checkout that follows.</p>
+  </div>
+</div>
+
+<section class="block">
+  <div class="container">
+    <div id="alert" class="alert"></div>
+    <div class="cal-wrap" id="cal-wrap">
+      <!-- Month calendar -->
+      <div class="cal-card">
+        <div class="cal-head">
+          <h3 id="cal-title">—</h3>
+          <div class="cal-nav">
+            <button id="prev-month" aria-label="Previous month">&#8249;</button>
+            <button id="next-month" aria-label="Next month">&#8250;</button>
+          </div>
+        </div>
+        <div class="cal-grid" id="cal-dows"></div>
+        <div class="cal-grid" id="cal-days" style="margin-top:6px;"></div>
+        <div class="cal-legend">
+          <span class="lg"><span class="sw avail"></span> Available</span>
+          <span class="lg"><span class="sw unavail"></span> No openings</span>
+        </div>
+      </div>
+
+      <!-- Day hour picker -->
+      <div class="cal-card" id="day-card" style="display:none;">
+        <h3 id="day-title" style="margin-top:0;">Select a time</h3>
+        <p class="muted" id="day-help" style="font-size:.9rem;">Choose an available one-hour session below.</p>
+        <div class="hour-grid" id="hour-grid"></div>
+        <div id="day-empty" class="muted" style="display:none;">No open times remain on this day.</div>
+
+        <div id="selection-box" style="display:none;margin-top:22px;padding-top:18px;border-top:1px solid var(--line);">
+          <p style="margin:0 0 4px;"><span class="muted">Selected session</span></p>
+          <p style="margin:0;font-size:1.1rem;"><strong id="sel-summary"></strong></p>
+          <p style="margin:6px 0 0;color:var(--gold-dark);font-weight:600;" id="sel-price"></p>
+          <a href="#" id="continue-btn" class="btn btn-primary mt-2" style="width:100%;text-align:center;">Continue to Checkout</a>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div id="site-footer"></div>
+<script src="/js/layout.js"></script>
+<script src="/js/calendar.js"></script>
+</body>

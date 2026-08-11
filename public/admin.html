@@ -1,0 +1,204 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Admin — Professional Advisory Group</title>
+<meta name="robots" content="noindex,nofollow">
+<link rel="stylesheet" href="/css/styles.css">
+<body data-page="">
+<div id="site-header"></div>
+
+<!-- LOGIN VIEW -->
+<section class="block" id="login-view">
+  <div class="container narrow">
+    <div class="card">
+      <h1 class="mt-0">Admin Sign In</h1>
+      <p class="muted">Manage availability, bookings, customers, inquiries, and settings.</p>
+      <div id="login-alert" class="alert"></div>
+      <form id="login-form">
+        <div class="form-row">
+          <label for="password">Password</label>
+          <input type="password" id="password" required autocomplete="current-password">
+        </div>
+        <button class="btn btn-primary" id="login-btn">Sign In</button>
+      </form>
+      <p class="hint mt-2">First time? The default password is <code>changeme</code> — change it under Settings after signing in.</p>
+    </div>
+  </div>
+</section>
+
+<!-- DASHBOARD VIEW -->
+<section class="block" id="dash-view" style="display:none;">
+  <div class="container">
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;">
+      <h1 class="mt-0">Admin Dashboard</h1>
+      <button class="btn btn-ghost btn-sm" id="logout-btn">Sign Out</button>
+    </div>
+
+    <div class="tabs">
+      <button class="tab-btn active" data-tab="availability">Availability</button>
+      <button class="tab-btn" data-tab="bookings">Bookings</button>
+      <button class="tab-btn" data-tab="customers">Customers</button>
+      <button class="tab-btn" data-tab="inquiries">Inquiries</button>
+      <button class="tab-btn" data-tab="settings">Settings</button>
+    </div>
+
+    <!-- AVAILABILITY -->
+    <div class="tab-panel active" id="tab-availability">
+      <div class="card">
+        <h3 class="mt-0">Set Available Hours</h3>
+        <p class="muted" style="font-size:.92rem;">Pick a date (or a date range), then click the hours you want to make bookable.
+        Highlighted = available. Grey = unavailable. Click to toggle. Booked hours are locked.
+        Set the price per one-hour session, then Save.</p>
+        <div class="grid-2" style="max-width:640px;">
+          <div class="form-row">
+            <label for="a-date">Start date</label>
+            <input type="date" id="a-date">
+          </div>
+          <div class="form-row">
+            <label for="a-end-date">End date <span class="muted" style="font-weight:400;">(optional — for a range)</span></label>
+            <input type="date" id="a-end-date">
+            <div class="hint">Leave blank to set a single day.</div>
+          </div>
+        </div>
+        <div class="form-row" id="weekday-row" style="display:none;">
+          <label>Apply to these weekdays</label>
+          <div id="weekday-picker" style="display:flex;gap:8px;flex-wrap:wrap;"></div>
+          <div class="hint">Only these weekdays within the range will be updated (e.g. weekdays only).</div>
+        </div>
+        <div class="form-row" style="max-width:320px;">
+          <label for="a-price">Price per session (USD)</label>
+          <input type="number" id="a-price" min="0" step="1" value="150">
+          <div class="hint">Enter 0 for a complimentary session.</div>
+        </div>
+        <div id="avail-alert" class="alert"></div>
+        <div class="hour-grid" id="admin-hour-grid" style="margin:14px 0;"></div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;">
+          <button class="btn btn-primary" id="avail-save">Save Availability for This Day</button>
+          <button class="btn btn-ghost" id="avail-selectall">Select All</button>
+          <button class="btn btn-ghost" id="avail-clear">Clear All</button>
+        </div>
+        <div class="cal-legend mt-2">
+          <span class="lg"><span class="sw avail"></span> Available</span>
+          <span class="lg"><span class="sw unavail"></span> Unavailable</span>
+          <span class="lg"><span class="sw" style="background:#f7ecec;border-color:#e2b9b9;"></span> Booked (locked)</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- BOOKINGS -->
+    <div class="tab-panel" id="tab-bookings">
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center;">
+          <h3 class="mt-0">Bookings</h3>
+          <button class="btn btn-ghost btn-sm" id="refresh-bookings">Refresh</button>
+        </div>
+        <div class="table-wrap">
+          <table class="data" id="bookings-table">
+            <thead><tr><th>When</th><th>Name</th><th>Contact</th><th>Service</th><th>Amount</th><th>Payment</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <p class="muted" id="bookings-empty" style="display:none;">No bookings yet.</p>
+      </div>
+    </div>
+
+    <!-- CUSTOMERS -->
+    <div class="tab-panel" id="tab-customers">
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center;">
+          <h3 class="mt-0">Customers</h3>
+          <button class="btn btn-ghost btn-sm" id="refresh-customers">Refresh</button>
+        </div>
+        <div class="table-wrap">
+          <table class="data" id="customers-table">
+            <thead><tr><th>Name</th><th>Email</th><th>Phone</th><th>Address</th><th>Bookings</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <p class="muted" id="customers-empty" style="display:none;">No customers yet.</p>
+      </div>
+    </div>
+
+    <!-- INQUIRIES -->
+    <div class="tab-panel" id="tab-inquiries">
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center;">
+          <h3 class="mt-0">Contact Inquiries</h3>
+          <button class="btn btn-ghost btn-sm" id="refresh-contacts">Refresh</button>
+        </div>
+        <div class="table-wrap">
+          <table class="data" id="contacts-table">
+            <thead><tr><th>Received</th><th>Name</th><th>Contact</th><th>Service</th><th>Message</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <p class="muted" id="contacts-empty" style="display:none;">No inquiries yet.</p>
+      </div>
+    </div>
+
+    <!-- SETTINGS -->
+    <div class="tab-panel" id="tab-settings">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:28px;align-items:start;">
+        <div class="stack">
+          <div class="card">
+            <h3 class="mt-0">Email &amp; Notifications</h3>
+            <p class="muted" style="font-size:.9rem;">Booking and inquiry alerts, plus the customer's confirmation email, are sent through this account. Gmail works well with an App Password.</p>
+            <div id="email-alert" class="alert"></div>
+            <div class="form-row"><label>Notify email (where alerts go)</label><input type="email" id="notify_email"></div>
+            <div class="grid-2">
+              <div class="form-row"><label>SMTP Host</label><input type="text" id="smtp_host" placeholder="smtp.gmail.com"></div>
+              <div class="form-row"><label>SMTP Port</label><input type="text" id="smtp_port" placeholder="587"></div>
+            </div>
+            <div class="form-row"><label>SMTP Username</label><input type="text" id="smtp_user" placeholder="jonmichaelcorey@gmail.com"></div>
+            <div class="form-row"><label>SMTP Password / App Password</label><input type="password" id="smtp_pass" placeholder="•••• (blank keeps current)"></div>
+            <div class="form-row"><label>From address</label><input type="text" id="smtp_from" placeholder="jonmichaelcorey@gmail.com"></div>
+            <button class="btn btn-primary" id="save-email">Save Email Settings</button>
+          </div>
+
+          <div class="card">
+            <h3 class="mt-0">Thank-You Email Template</h3>
+            <p class="muted" style="font-size:.9rem;">Sent to the customer after a successful booking. Use these variables:
+            <code>{name}</code>, <code>{date}</code>, <code>{start_time}</code>, <code>{end_time}</code>,
+            <code>{service}</code>, <code>{amount}</code>.</p>
+            <div id="tmpl-alert" class="alert"></div>
+            <div class="form-row">
+              <textarea id="thankyou_template" style="min-height:220px;font-family:var(--sans);"></textarea>
+            </div>
+            <button class="btn btn-primary" id="save-tmpl">Save Template</button>
+          </div>
+        </div>
+
+        <div class="stack">
+          <div class="card">
+            <h3 class="mt-0">Stripe Payments</h3>
+            <p class="muted" style="font-size:.9rem;">Paste your keys from Stripe Dashboard → Developers → API keys to accept card payments at checkout.</p>
+            <div id="stripe-alert" class="alert"></div>
+            <div class="form-row"><label>Publishable Key</label><input type="text" id="stripe_publishable_key" placeholder="pk_live_… or pk_test_…"></div>
+            <div class="form-row">
+              <label>Secret Key</label>
+              <input type="password" id="stripe_secret_key" placeholder="sk_live_… (blank keeps current)">
+              <div class="hint" id="stripe-status"></div>
+            </div>
+            <div class="grid-2">
+              <div class="form-row"><label>Currency</label><input type="text" id="currency" value="usd"></div>
+              <div class="form-row"><label>Site Base URL</label><input type="text" id="site_base_url" placeholder="https://yourdomain.com"></div>
+            </div>
+            <div class="hint">Site Base URL builds Stripe's return links — set it to your live domain when deployed.</div>
+            <button class="btn btn-primary mt-2" id="save-stripe">Save Payment Settings</button>
+          </div>
+
+          <div class="card">
+            <h3 class="mt-0">Change Admin Password</h3>
+            <div id="pw-alert" class="alert"></div>
+            <div class="form-row"><label>New Password</label><input type="password" id="new_password" placeholder="At least 6 characters"></div>
+            <button class="btn btn-navy" id="save-pw">Update Password</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div id="site-footer"></div>
+<script src="/js/layout.js"></script>
+<script src="/js/admin.js"></script>
+</body>
