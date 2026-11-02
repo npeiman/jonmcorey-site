@@ -47,10 +47,10 @@ img { max-width: 100%; display: block; }
 }
 .brand { display: flex; align-items: center; gap: 12px; text-decoration: none; color: var(--cream); }
 .brand .mark {
-  width: 42px; height: 42px; border-radius: 50%;
+  width: 56px; height: 56px; border-radius: 50%; flex: 0 0 auto;
   border: 2px solid var(--gold); color: var(--gold);
   display: grid; place-items: center; font-family: var(--serif);
-  font-weight: 700; font-size: 18px; letter-spacing: .5px;
+  font-weight: 700; font-size: 17px; letter-spacing: 0;
 }
 .brand .brand-text { display: flex; flex-direction: column; }
 .brand .brand-name { font-family: var(--serif); font-size: 1.05rem; font-weight: 700; }
@@ -248,6 +248,9 @@ textarea { min-height: 110px; resize: vertical; }
 .stripe-el.StripeElement--invalid { border-color: var(--err); }
 .field-error { color: var(--err); font-size: .82rem; margin-top: 4px; min-height: 1em; }
 .pay-lock { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: .85rem; }
+.pay-opt { display: flex; align-items: flex-start; gap: 10px; border: 1px solid var(--line); border-radius: 9px; padding: 11px 13px; margin-bottom: 8px; cursor: pointer; font-weight: 400; }
+.pay-opt input { width: auto; margin-top: 3px; }
+.pay-opt:hover { border-color: var(--gold); }
 .card-brands { color: var(--muted); font-size: .8rem; letter-spacing: .06em; }
 .section-label { font-family: var(--serif); color: var(--navy); font-size: 1.05rem; margin: 22px 0 12px; padding-bottom: 6px; border-bottom: 1px solid var(--line); }
 
@@ -276,6 +279,10 @@ table.data tr:hover td { background: #fbf9f4; }
 .pill.request { background: #eaf0f7; color: var(--navy); }
 .pill.open { background: #e7f3ec; color: var(--ok); }
 .pill.booked { background: #f7e7e7; color: var(--err); }
+.row-actions { display: flex; gap: 4px; flex-wrap: wrap; }
+.row-actions .btn-sm { padding: 4px 9px; font-size: .78rem; }
+.row-actions .act-danger { color: var(--err); }
+.row-actions .act-danger:hover { background: #f7e7e7; }
 
 /* ---------- Admin tabs ---------- */
 .tabs { display: flex; gap: 6px; border-bottom: 2px solid var(--line); margin-bottom: 26px; flex-wrap: wrap; }

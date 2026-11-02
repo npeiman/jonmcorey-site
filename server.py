@@ -150,6 +150,7 @@ def init_db():
         "currency": "usd",
         "site_base_url": "http://localhost:%d" % PORT,
         "thankyou_template": DEFAULT_THANKYOU,
+        "next_invoice_number": "1005",
     }
     for k, v in defaults.items():
         c.execute("INSERT OR IGNORE INTO settings(key, value) VALUES (?, ?)", (k, v))
@@ -179,6 +180,30 @@ def init_db():
             print("   Username: admin   Password: changeme")
             print("   Change the password on the Admin page (Settings) after logging in.")
             print("=" * 64)
+
+    # Lightweight migrations: add columns if missing.
+    def ensure_col(table, col, decl):
+        cols = [r[1] for r in c.execute("PRAGMA table_info(%s)" % table).fetchall()]
+        if col not in cols:
+            c.execute("ALTER TABLE %s ADD COLUMN %s %s" % (table, col, decl))
+
+    # Booking lifecycle + payment method
+    ensure_col("bookings", "status", "TEXT NOT NULL DEFAULT 'active'")   # active | cancelled
+    ensure_col("bookings", "archived", "INTEGER NOT NULL DEFAULT 0")
+    ensure_col("bookings", "payment_method", "TEXT NOT NULL DEFAULT ''")  # card | in_person
+    ensure_col("bookings", "invoice_number", "INTEGER")
+    ensure_col("bookings", "invoice_created_at", "TEXT")
+    # Structured (Stripe-conformant) billing address + Dr. Corey's private notes
+    ensure_col("customers", "address2", "TEXT")
+    ensure_col("customers", "city", "TEXT")
+    ensure_col("customers", "state", "TEXT")
+    ensure_col("customers", "zip", "TEXT")
+    ensure_col("customers", "country", "TEXT")
+    ensure_col("customers", "corey_notes", "TEXT")
+    # Admin identity
+    ensure_col("admin_users", "display_name", "TEXT")
+    c.execute("UPDATE admin_users SET display_name='Dr. Jon M. Corey' "
+              "WHERE username='admin' AND (display_name IS NULL OR display_name='')")
 
     conn.commit()
     conn.close()
@@ -266,7 +291,7 @@ def hour_range_label(h):
 # ---------------------------------------------------------------------------
 # Email
 # ---------------------------------------------------------------------------
-def send_email(subject, body, to_addr=None):
+def send_email(subject, body, to_addr=None, reply_to=None):
     host = get_setting("smtp_host")
     if not host:
         return False, "SMTP not configured"
@@ -281,6 +306,8 @@ def send_email(subject, body, to_addr=None):
     msg["Subject"] = subject
     msg["From"] = from_addr
     msg["To"] = to_addr
+    if reply_to:
+        msg["Reply-To"] = reply_to   # so "Reply" goes to the client, not himself
     msg.set_content(body)
     try:
         with smtplib.SMTP(host, port, timeout=15) as s:
@@ -406,7 +433,8 @@ def finalize_booking(conn, booking, paid=True):
            cust["name"], cust["email"], cust["phone"] or "", cust["address"] or "",
            when_date, start_t, end_t, service, amount, booking["notes"] or "(none)")
     )
-    send_email("%s booking - %s" % ("PAID" if paid else "New", cust["name"]), jon_body)
+    send_email("%s booking - %s" % ("PAID" if paid else "New", cust["name"]), jon_body,
+               reply_to=cust["email"])
 
     # Confirm to customer using the admin-defined template
     tmpl = get_setting("thankyou_template", DEFAULT_THANKYOU)
@@ -415,7 +443,8 @@ def finalize_booking(conn, booking, paid=True):
         "end_time": end_t, "time": "%s - %s" % (start_t, end_t),
         "service": service, "amount": amount,
     })
-    send_email("Your session with Rev. Jon M. Corey is confirmed", cust_body, to_addr=cust["email"])
+    send_email("Your session with Rev. Jon M. Corey is confirmed", cust_body,
+               to_addr=cust["email"], reply_to=get_setting("notify_email"))
 
 
 def _pretty_date(iso):
@@ -513,7 +542,14 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return self.api_quote(qs)
 
         if path == "/api/admin/session":
-            return self.send_json({"ok": True, "authed": is_authed(self)})
+            authed = is_authed(self)
+            name = ""
+            if authed:
+                conn = get_db()
+                row = conn.execute("SELECT display_name FROM admin_users WHERE username='admin'").fetchone()
+                conn.close()
+                name = (row["display_name"] if row and row["display_name"] else "Administrator")
+            return self.send_json({"ok": True, "authed": authed, "display_name": name})
         if path == "/api/admin/hours":
             if not is_authed(self):
                 return self.send_error_json("unauthorized", 401)
@@ -521,11 +557,19 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if path == "/api/admin/bookings":
             if not is_authed(self):
                 return self.send_error_json("unauthorized", 401)
-            return self.api_admin_bookings()
+            return self.api_admin_bookings(qs)
         if path == "/api/admin/customers":
             if not is_authed(self):
                 return self.send_error_json("unauthorized", 401)
             return self.api_admin_customers()
+        if path == "/api/admin/client":
+            if not is_authed(self):
+                return self.send_error_json("unauthorized", 401)
+            return self.api_admin_client_detail(qs)
+        if path == "/api/admin/invoice":
+            if not is_authed(self):
+                return self.send_error_json("unauthorized", 401)
+            return self.api_admin_invoice(qs)
         if path == "/api/admin/contacts":
             if not is_authed(self):
                 return self.send_error_json("unauthorized", 401)
@@ -565,6 +609,26 @@ class Handler(http.server.BaseHTTPRequestHandler):
             if not is_authed(self):
                 return self.send_error_json("unauthorized", 401)
             return self.api_admin_save_hours()
+        if path == "/api/admin/bookings/delete":
+            if not is_authed(self):
+                return self.send_error_json("unauthorized", 401)
+            return self.api_admin_booking_delete()
+        if path == "/api/admin/bookings/cancel":
+            if not is_authed(self):
+                return self.send_error_json("unauthorized", 401)
+            return self.api_admin_booking_cancel()
+        if path == "/api/admin/bookings/archive":
+            if not is_authed(self):
+                return self.send_error_json("unauthorized", 401)
+            return self.api_admin_booking_archive()
+        if path == "/api/admin/bookings/update":
+            if not is_authed(self):
+                return self.send_error_json("unauthorized", 401)
+            return self.api_admin_booking_update()
+        if path == "/api/admin/client/notes":
+            if not is_authed(self):
+                return self.send_error_json("unauthorized", 401)
+            return self.api_admin_client_notes()
         if path == "/api/admin/settings":
             if not is_authed(self):
                 return self.send_error_json("unauthorized", 401)
@@ -667,7 +731,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         body = ("New inquiry via Professional Advisory Group website\n\n"
                 "Name: %s\nEmail: %s\nPhone: %s\nService: %s\n\nMessage:\n%s\n"
                 % (name, email, phone, service or "(not specified)", message or "(none)"))
-        sent, _ = send_email("New inquiry from %s" % name, body)
+        sent, _ = send_email("New inquiry from %s" % name, body, reply_to=email)
         return self.send_json({"ok": True, "notified": sent,
                                "message": "Thank you. Your inquiry has been received."})
 
@@ -681,9 +745,17 @@ class Handler(http.server.BaseHTTPRequestHandler):
         name = (d.get("name") or "").strip()
         email = (d.get("email") or "").strip()
         phone = (d.get("phone") or "").strip()
-        address = (d.get("address") or "").strip()
+        address = (d.get("address") or "").strip()      # line 1
+        address2 = (d.get("address2") or "").strip()
+        city = (d.get("city") or "").strip()
+        state = (d.get("state") or "").strip()
+        zip_code = (d.get("zip") or "").strip()
+        country = (d.get("country") or "").strip() or "US"
         service = (d.get("service") or "").strip()
         notes = (d.get("notes") or "").strip()
+        payment_method = (d.get("payment_method") or "card").strip()
+        if payment_method not in ("card", "in_person"):
+            payment_method = "card"
 
         if not DATE_RE.match(the_date):
             return self.send_error_json("Please choose a valid date.")
@@ -706,12 +778,15 @@ class Handler(http.server.BaseHTTPRequestHandler):
             conn.close()
             return self.send_error_json("Sorry, that time has just been booked.", 409)
 
-        # Upsert customer by email
+        # Upsert client record by email (structured billing address)
         conn.execute(
-            "INSERT INTO customers(name, address, phone, email, created_at) VALUES (?,?,?,?,?) "
-            "ON CONFLICT(email) DO UPDATE SET name=excluded.name, "
-            "address=excluded.address, phone=excluded.phone",
-            (name, address, phone, email, datetime.utcnow().isoformat()),
+            "INSERT INTO customers(name, address, address2, city, state, zip, country, phone, email, created_at) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?) "
+            "ON CONFLICT(email) DO UPDATE SET name=excluded.name, address=excluded.address, "
+            "address2=excluded.address2, city=excluded.city, state=excluded.state, "
+            "zip=excluded.zip, country=excluded.country, phone=excluded.phone",
+            (name, address, address2, city, state, zip_code, country, phone, email,
+             datetime.utcnow().isoformat()),
         )
         cust = conn.execute("SELECT id FROM customers WHERE email=?", (email,)).fetchone()
         customer_id = cust["id"]
@@ -719,31 +794,29 @@ class Handler(http.server.BaseHTTPRequestHandler):
         amount = slot["price_cents"]
         cur = conn.execute(
             "INSERT INTO bookings(customer_id, date, hour, service, notes, amount_cents, "
-            "payment_status, created_at) VALUES (?,?,?,?,?,?, 'pending', ?)",
-            (customer_id, the_date, hour, service, notes, amount, datetime.utcnow().isoformat()),
+            "payment_status, payment_method, created_at) VALUES (?,?,?,?,?,?, 'pending', ?, ?)",
+            (customer_id, the_date, hour, service, notes, amount, payment_method,
+             datetime.utcnow().isoformat()),
         )
         booking_id = cur.lastrowid
         conn.commit()
 
-        base = get_setting("site_base_url") or ("http://localhost:%d" % PORT)
-        desc = "Session with Rev. Jon M. Corey - %s, %s%s" % (
-            _pretty_date(the_date), hour_range_label(hour),
-            (" (" + service + ")") if service else "")
-
-        # Paid path: send the customer to our custom on-site payment page
-        # (Stripe Elements). The PaymentIntent is created there.
-        if get_setting("stripe_secret_key") and amount > 0:
+        # Card path: send the customer to our custom on-site payment page (Stripe Elements).
+        if payment_method == "card" and get_setting("stripe_secret_key") and amount > 0:
             conn.close()
             return self.send_json({"ok": True, "booking_id": booking_id,
                                    "payment_url": "/payment?booking_id=%d" % booking_id})
 
-        # No Stripe (or complimentary): finalize now and email both parties.
+        # Check/cash in person, complimentary, or Stripe not yet enabled: reserve now.
         booking = conn.execute("SELECT * FROM bookings WHERE id=?", (booking_id,)).fetchone()
         finalize_booking(conn, booking, paid=(amount == 0))
         conn.close()
+        if payment_method == "in_person":
+            msg = "Your session is reserved. Payment by check or cash will be collected in person."
+        else:
+            msg = "Your session is reserved. Rev. Corey's office will contact you about payment."
         return self.send_json({
-            "ok": True, "booking_id": booking_id, "checkout_url": None,
-            "message": "Your session is reserved.",
+            "ok": True, "booking_id": booking_id, "payment_url": None, "message": msg,
         })
 
     def handle_booking_success(self, qs):
@@ -774,6 +847,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
             "name": cust["name"] if cust else "",
             "email": cust["email"] if cust else "",
             "phone": cust["phone"] if cust else "",
+            "address": (cust["address"] if cust else "") or "",
+            "address2": (cust["address2"] if cust else "") or "",
+            "city": (cust["city"] if cust else "") or "",
+            "state": (cust["state"] if cust else "") or "",
+            "zip": (cust["zip"] if cust else "") or "",
+            "country": (cust["country"] if cust else "") or "US",
         }
 
     def api_payment_create_intent(self):
@@ -985,23 +1064,137 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return self.send_json({"ok": True, "message": "Availability saved for %s." % start.isoformat()})
         return self.send_json({"ok": True, "message": "Availability saved for %d days." % applied})
 
-    def api_admin_bookings(self):
+    def api_admin_bookings(self, qs=None):
+        include_archived = bool(qs and (qs.get("include_archived") or [""])[0] in ("1", "true"))
+        where = "" if include_archived else "WHERE b.archived = 0"
         conn = get_db()
         rows = conn.execute(
             "SELECT b.*, c.name AS c_name, c.email AS c_email, c.phone AS c_phone, "
             "c.address AS c_address FROM bookings b "
-            "LEFT JOIN customers c ON b.customer_id = c.id "
-            "ORDER BY b.date DESC, b.hour DESC, b.created_at DESC"
+            "LEFT JOIN customers c ON b.customer_id = c.id " + where + " "
+            "ORDER BY b.archived ASC, b.date DESC, b.hour DESC, b.created_at DESC"
         ).fetchall()
         conn.close()
         out = [{
             "id": r["id"], "name": r["c_name"], "email": r["c_email"], "phone": r["c_phone"],
             "address": r["c_address"], "service": r["service"], "notes": r["notes"],
-            "amount_display": money_str(r["amount_cents"]), "payment_status": r["payment_status"],
+            "amount_cents": r["amount_cents"], "amount_display": money_str(r["amount_cents"]),
+            "payment_status": r["payment_status"],
+            "status": r["status"], "archived": bool(r["archived"]),
+            "paid": r["payment_status"] == "paid",
             "when": "%s, %s" % (_pretty_date(r["date"]), hour_range_label(r["hour"])),
             "created_at": r["created_at"],
         } for r in rows]
         return self.send_json({"ok": True, "bookings": out})
+
+    def _get_booking_or_error(self, conn, bid_raw):
+        """Return (booking_row, None) or (None, error_response_sent)."""
+        if not (isinstance(bid_raw, int) or (isinstance(bid_raw, str) and str(bid_raw).isdigit())):
+            self.send_error_json("Invalid booking id.")
+            return None, True
+        b = conn.execute("SELECT * FROM bookings WHERE id=?", (int(bid_raw),)).fetchone()
+        if not b:
+            self.send_error_json("Booking not found.", 404)
+            return None, True
+        return b, False
+
+    def _free_slot(self, conn, the_date, hour):
+        conn.execute("UPDATE hours SET status='open' WHERE date=? AND hour=?", (the_date, hour))
+
+    def api_admin_booking_delete(self):
+        d = self.read_json_body()
+        conn = get_db()
+        b, err = self._get_booking_or_error(conn, d.get("id"))
+        if err:
+            conn.close(); return
+        if b["payment_status"] == "paid":
+            conn.close()
+            return self.send_error_json("Paid bookings can't be deleted. Archive it instead.", 409)
+        self._free_slot(conn, b["date"], b["hour"])
+        conn.execute("DELETE FROM bookings WHERE id=?", (b["id"],))
+        conn.commit()
+        conn.close()
+        return self.send_json({"ok": True, "message": "Booking deleted and the time slot reopened."})
+
+    def api_admin_booking_cancel(self):
+        d = self.read_json_body()
+        conn = get_db()
+        b, err = self._get_booking_or_error(conn, d.get("id"))
+        if err:
+            conn.close(); return
+        if b["payment_status"] == "paid":
+            conn.close()
+            return self.send_error_json("Paid bookings can't be cancelled here (that would need a refund). Archive it instead.", 409)
+        self._free_slot(conn, b["date"], b["hour"])
+        conn.execute("UPDATE bookings SET status='cancelled' WHERE id=?", (b["id"],))
+        conn.commit()
+        conn.close()
+        return self.send_json({"ok": True, "message": "Booking cancelled and the time slot reopened."})
+
+    def api_admin_booking_archive(self):
+        d = self.read_json_body()
+        archived = 0 if d.get("archived") in (False, 0, "0", "false") else 1
+        conn = get_db()
+        b, err = self._get_booking_or_error(conn, d.get("id"))
+        if err:
+            conn.close(); return
+        conn.execute("UPDATE bookings SET archived=? WHERE id=?", (archived, b["id"]))
+        conn.commit()
+        conn.close()
+        return self.send_json({"ok": True,
+            "message": "Booking archived." if archived else "Booking restored to the active list."})
+
+    def api_admin_booking_update(self):
+        d = self.read_json_body()
+        conn = get_db()
+        b, err = self._get_booking_or_error(conn, d.get("id"))
+        if err:
+            conn.close(); return
+        name = (d.get("name") or "").strip()
+        email = (d.get("email") or "").strip()
+        phone = (d.get("phone") or "").strip()
+        service = (d.get("service") or "").strip()
+        notes = (d.get("notes") or "").strip()
+        payment_status = (d.get("payment_status") or b["payment_status"]).strip()
+        if payment_status not in ("pending", "paid", "unpaid_request"):
+            conn.close()
+            return self.send_error_json("Invalid payment status.")
+        if not name:
+            conn.close()
+            return self.send_error_json("Name is required.")
+        if not valid_email(email):
+            conn.close()
+            return self.send_error_json("A valid email is required.")
+        try:
+            amount_cents = int(round(float(d.get("amount") if d.get("amount") not in (None, "") else b["amount_cents"] / 100.0) * 100))
+        except (ValueError, TypeError):
+            conn.close()
+            return self.send_error_json("Invalid amount.")
+        # Update the linked customer record (or create one if somehow missing)
+        if b["customer_id"]:
+            conn.execute("UPDATE customers SET name=?, email=?, phone=? WHERE id=?",
+                         (name, email, phone, b["customer_id"]))
+        conn.execute("UPDATE bookings SET service=?, notes=?, amount_cents=?, payment_status=? WHERE id=?",
+                     (service, notes, amount_cents, payment_status, b["id"]))
+        conn.commit()
+        conn.close()
+        return self.send_json({"ok": True, "message": "Booking updated."})
+
+    def _full_address(self, r):
+        parts = []
+        line1 = (r["address"] or "").strip()
+        line2 = (r["address2"] or "").strip() if "address2" in r.keys() else ""
+        if line1:
+            parts.append(line1)
+        if line2:
+            parts.append(line2)
+        city = (r["city"] or "").strip() if "city" in r.keys() else ""
+        state = (r["state"] or "").strip() if "state" in r.keys() else ""
+        zip_c = (r["zip"] or "").strip() if "zip" in r.keys() else ""
+        csz = " ".join([p for p in [", ".join([p for p in [city, state] if p]), zip_c] if p]).strip()
+        if csz:
+            parts.append(csz)
+        return "\n".join(parts)
 
     def api_admin_customers(self):
         conn = get_db()
@@ -1012,10 +1205,130 @@ class Handler(http.server.BaseHTTPRequestHandler):
         ).fetchall()
         conn.close()
         out = [{
-            "id": r["id"], "name": r["name"], "address": r["address"], "phone": r["phone"],
+            "id": r["id"], "name": r["name"], "address": self._full_address(r), "phone": r["phone"],
             "email": r["email"], "bookings": r["bookings"], "created_at": r["created_at"],
+            "has_notes": bool((r["corey_notes"] or "").strip() if "corey_notes" in r.keys() else False),
         } for r in rows]
         return self.send_json({"ok": True, "customers": out})
+
+    def api_admin_client_detail(self, qs):
+        cid = (qs.get("id") or [""])[0]
+        if not cid.isdigit():
+            return self.send_error_json("Invalid client id.")
+        conn = get_db()
+        c = conn.execute("SELECT * FROM customers WHERE id=?", (int(cid),)).fetchone()
+        if not c:
+            conn.close()
+            return self.send_error_json("Client not found.", 404)
+        rows = conn.execute(
+            "SELECT * FROM bookings WHERE customer_id=? ORDER BY date DESC, hour DESC", (int(cid),)
+        ).fetchall()
+        conn.close()
+        bookings = [{
+            "id": b["id"],
+            "when": "%s, %s" % (_pretty_date(b["date"]), hour_range_label(b["hour"])),
+            "service": b["service"] or "", "amount_display": money_str(b["amount_cents"]),
+            "payment_status": b["payment_status"], "payment_method": b["payment_method"],
+            "status": b["status"], "archived": bool(b["archived"]),
+            "client_notes": b["notes"] or "",
+        } for b in rows]
+        # Aggregate the client's own notes to Rev. Corey (from their bookings)
+        client_notes = [{"when": bk["when"], "text": bk["client_notes"]} for bk in bookings if bk["client_notes"]]
+        client = {
+            "id": c["id"], "name": c["name"], "email": c["email"], "phone": c["phone"],
+            "address": self._full_address(c),
+            "address_line1": c["address"] or "", "address2": c["address2"] or "",
+            "city": c["city"] or "", "state": c["state"] or "", "zip": c["zip"] or "",
+            "country": c["country"] or "", "corey_notes": c["corey_notes"] or "",
+            "created_at": c["created_at"],
+        }
+        return self.send_json({"ok": True, "client": client, "bookings": bookings,
+                               "client_notes": client_notes})
+
+    def _ensure_invoice_number(self, conn, b):
+        """Assign (and persist) an invoice number for a booking if it lacks one."""
+        if b["invoice_number"]:
+            return b["invoice_number"]
+        row = conn.execute("SELECT value FROM settings WHERE key='next_invoice_number'").fetchone()
+        try:
+            num = int(row["value"]) if row and row["value"] else 1005
+        except (TypeError, ValueError):
+            num = 1005
+        now = datetime.utcnow().isoformat()
+        conn.execute("UPDATE bookings SET invoice_number=?, invoice_created_at=? WHERE id=?",
+                     (num, now, b["id"]))
+        conn.execute("INSERT INTO settings(key, value) VALUES('next_invoice_number', ?) "
+                     "ON CONFLICT(key) DO UPDATE SET value=excluded.value", (str(num + 1),))
+        conn.commit()
+        return num
+
+    def api_admin_invoice(self, qs):
+        bid = (qs.get("booking_id") or [""])[0]
+        if not bid.isdigit():
+            return self.send_error_json("Invalid booking id.")
+        conn = get_db()
+        b = conn.execute("SELECT * FROM bookings WHERE id=?", (int(bid),)).fetchone()
+        if not b:
+            conn.close()
+            return self.send_error_json("Booking not found.", 404)
+        number = self._ensure_invoice_number(conn, b)
+        b = conn.execute("SELECT * FROM bookings WHERE id=?", (int(bid),)).fetchone()
+        cust = conn.execute("SELECT * FROM customers WHERE id=?", (b["customer_id"],)).fetchone()
+        conn.close()
+
+        paid = b["payment_status"] == "paid"
+        amount = b["amount_cents"]
+        inv_date = b["invoice_created_at"] or datetime.utcnow().isoformat()
+        try:
+            inv_date_pretty = datetime.strptime(inv_date[:10], "%Y-%m-%d").strftime("%B %-d, %Y")
+        except Exception:
+            inv_date_pretty = inv_date[:10]
+        method = {"card": "Credit/Debit Card", "in_person": "Check or Cash (in person)"}.get(
+            b["payment_method"], "")
+
+        invoice = {
+            "number": number,
+            "date": inv_date_pretty,
+            "business": {
+                "name": "Professional Advisory Group",
+                "person": "Rev. Jon M. Corey, PhD",
+                "phone": "480.388.6606",
+                "email": get_setting("notify_email", "jonmichaelcorey@gmail.com"),
+            },
+            "client": {
+                "name": cust["name"] if cust else "",
+                "email": cust["email"] if cust else "",
+                "phone": cust["phone"] if cust else "",
+                "address": self._full_address(cust) if cust else "",
+            },
+            "session_when": "%s, %s" % (_pretty_date(b["date"]), hour_range_label(b["hour"])),
+            "service": b["service"] or "Pastoral Session (1 hour)",
+            "amount_display": money_str(amount),
+            "subtotal_display": money_str(amount),
+            "total_display": money_str(amount),
+            "paid": paid,
+            "payment_method": method,
+            "payment_status": b["payment_status"],
+            "amount_paid_display": money_str(amount if paid else 0),
+            "balance_display": money_str(0 if paid else amount),
+        }
+        return self.send_json({"ok": True, "invoice": invoice})
+
+    def api_admin_client_notes(self):
+        d = self.read_json_body()
+        cid = d.get("id")
+        if not (isinstance(cid, int) or (isinstance(cid, str) and str(cid).isdigit())):
+            return self.send_error_json("Invalid client id.")
+        notes = d.get("corey_notes") or ""
+        conn = get_db()
+        c = conn.execute("SELECT id FROM customers WHERE id=?", (int(cid),)).fetchone()
+        if not c:
+            conn.close()
+            return self.send_error_json("Client not found.", 404)
+        conn.execute("UPDATE customers SET corey_notes=? WHERE id=?", (notes, int(cid)))
+        conn.commit()
+        conn.close()
+        return self.send_json({"ok": True, "message": "Client notes saved."})
 
     def api_admin_contacts(self):
         conn = get_db()

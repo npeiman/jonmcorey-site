@@ -138,12 +138,16 @@
     $("s-price").textContent = s.amount_display;
     $("summary").style.display = "block";
     amountDisplay = s.amount_display;
-    // Prefill name from the booking
+    // Prefill name + billing address from the booking (entered in "Your Details")
     if (s.name) {
       var parts = s.name.trim().split(/\s+/);
       $("first-name").value = parts.shift() || "";
       $("last-name").value = parts.join(" ");
     }
+    function set(id, v) { if (v && $(id) && !$(id).value) $(id).value = v; }
+    set("addr1", s.address); set("addr2", s.address2); set("city", s.city);
+    set("state", s.state); set("zip", s.zip);
+    if (s.country) { $("country").value = s.country === "US" ? "United States" : s.country; }
   }
 
   async function init() {

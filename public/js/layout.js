@@ -19,10 +19,10 @@
       '</a>' +
       '<nav class="nav-links">' +
         link("/", "Home", "home") +
+        link("/about", "About", "about") +
         link("/calendar", "Book a Session", "calendar") +
         link("/contact", "Contact", "contact") +
         link("/calendar", "Schedule Now", "", "cta") +
-        '<a href="/admin" class="nav-login" id="nav-login">🔒 Login</a>' +
       '</nav>' +
     '</div></header>';
 
@@ -39,6 +39,7 @@
         '<h4>Navigate</h4>' +
         '<ul class="footer-list">' +
           '<li><a href="/">Home</a></li>' +
+          '<li><a href="/about">About</a></li>' +
           '<li><a href="/calendar">Book a Session</a></li>' +
           '<li><a href="/contact">Contact Us</a></li>' +
         '</ul>' +
@@ -61,9 +62,56 @@
   var f = document.getElementById("site-footer");
   if (f) f.outerHTML = footer;
 
-  // Reflect signed-in state on the Login button.
-  fetch("/api/admin/session").then(function (r) { return r.json(); }).then(function (d) {
-    var el = document.getElementById("nav-login");
-    if (el && d && d.authed) { el.textContent = "🔓 Admin"; el.title = "You are signed in"; }
-  }).catch(function () {});
+  // ---- Hidden admin entrance: double-click the PAG logo ----
+  // Single click on the logo still goes Home. A double-click opens the admin
+  // login (or, if already signed in, a small Admin / Sign Out dialog).
+  var authed = false;
+  fetch("/api/admin/session").then(function (r) { return r.json(); })
+    .then(function (d) { authed = !!(d && d.authed); }).catch(function () {});
+
+  var backdrop = document.createElement("div");
+  backdrop.className = "modal-backdrop";
+  backdrop.innerHTML =
+    '<div class="modal" style="max-width:360px;text-align:center;">' +
+      '<h3 style="margin-top:0;">Admin</h3>' +
+      '<p class="muted" id="pag-admin-msg">You are signed in as Dr. Jon M. Corey.</p>' +
+      '<div class="modal-actions" style="justify-content:center;">' +
+        '<button class="btn btn-ghost" id="pag-admin-dash">Go to Admin</button>' +
+        '<button class="btn btn-primary" id="pag-admin-logout">Sign Out</button>' +
+      '</div>' +
+      '<p style="margin:12px 0 0;"><a href="#" id="pag-admin-cancel" class="muted" style="font-size:.85rem;">Cancel</a></p>' +
+    '</div>';
+  document.body.appendChild(backdrop);
+  function closeModal() { backdrop.classList.remove("show"); }
+  backdrop.addEventListener("click", function (e) { if (e.target === backdrop) closeModal(); });
+  document.getElementById("pag-admin-cancel").addEventListener("click", function (e) { e.preventDefault(); closeModal(); });
+  document.getElementById("pag-admin-dash").addEventListener("click", function () { window.location.href = "/admin"; });
+  document.getElementById("pag-admin-logout").addEventListener("click", function () {
+    fetch("/api/admin/logout", { method: "POST" }).then(function () {
+      authed = false; closeModal(); window.location.href = "/";
+    }).catch(function () { closeModal(); });
+  });
+
+  function secretAdmin() {
+    if (authed) { backdrop.classList.add("show"); }
+    else { window.location.href = "/admin"; }
+  }
+
+  var brand = document.querySelector(".brand");
+  if (brand) {
+    var clickTimer = null;
+    brand.addEventListener("click", function (e) {
+      e.preventDefault();
+      if (clickTimer) return;           // second click handled by dblclick
+      clickTimer = setTimeout(function () {
+        clickTimer = null;
+        window.location.href = "/";      // single click → Home
+      }, 260);
+    });
+    brand.addEventListener("dblclick", function (e) {
+      e.preventDefault();
+      if (clickTimer) { clearTimeout(clickTimer); clickTimer = null; }
+      secretAdmin();
+    });
+  }
 })();

@@ -43,7 +43,10 @@
     } catch (e) {}
     try {
       var r = await (await fetch("/api/admin/session")).json();
-      if (r.authed) showDash(); else showLogin();
+      if (r.authed) {
+        if (r.display_name && $("admin-name")) $("admin-name").textContent = r.display_name;
+        showDash();
+      } else showLogin();
     } catch (e) { showLogin(); }
   }
 
@@ -193,26 +196,125 @@
   });
 
   // ---- Bookings ----
+  var bookingsCache = {};
   async function loadBookings() {
-    var r = await (await fetch("/api/admin/bookings")).json();
+    var inc = $("show-archived").checked ? "?include_archived=1" : "";
+    var r = await (await fetch("/api/admin/bookings" + inc)).json();
     var tb = $("bookings-table").querySelector("tbody"); tb.innerHTML = "";
+    bookingsCache = {};
     if (!r.ok || !r.bookings.length) { $("bookings-empty").style.display = "block"; $("bookings-table").style.display = "none"; return; }
     $("bookings-empty").style.display = "none"; $("bookings-table").style.display = "table";
     r.bookings.forEach(function (b) {
+      bookingsCache[b.id] = b;
+      var cancelled = b.status === "cancelled";
       var pillCls = b.payment_status === "paid" ? "paid" : b.payment_status === "unpaid_request" ? "request" : "pending";
       var pillTxt = b.payment_status === "unpaid_request" ? "reserved (unpaid)" : b.payment_status;
+      var tags = "";
+      if (cancelled) tags += ' <span class="pill" style="background:#f3e3e3;color:#9a3b3b;">cancelled</span>';
+      if (b.archived) tags += ' <span class="pill" style="background:#eee;color:#777;">archived</span>';
+
+      // Actions depend on payment status (enforced on the server too)
+      var actions = '<div class="row-actions">';
+      actions += '<button class="btn btn-ghost btn-sm" data-act="edit" data-id="' + b.id + '">Edit</button>';
+      if (!b.paid) {
+        actions += '<button class="btn btn-ghost btn-sm" data-act="cancel" data-id="' + b.id + '">Cancel</button>';
+        actions += '<button class="btn btn-ghost btn-sm act-danger" data-act="delete" data-id="' + b.id + '">Delete</button>';
+      }
+      if (b.archived) {
+        actions += '<button class="btn btn-ghost btn-sm" data-act="unarchive" data-id="' + b.id + '">Unarchive</button>';
+      } else {
+        actions += '<button class="btn btn-ghost btn-sm" data-act="archive" data-id="' + b.id + '">Archive</button>';
+      }
+      actions += "</div>";
+
       var tr = document.createElement("tr");
+      if (b.archived || cancelled) tr.style.opacity = ".6";
       tr.innerHTML =
         "<td>" + esc(b.when) + "</td>" +
         "<td>" + esc(b.name) + "</td>" +
         '<td><a href="mailto:' + esc(b.email) + '">' + esc(b.email) + "</a><br><span class='muted'>" + esc(b.phone || "") + "</span></td>" +
         "<td>" + esc(b.service || "—") + "</td>" +
         "<td>" + esc(b.amount_display) + "</td>" +
-        '<td><span class="pill ' + pillCls + '">' + pillTxt + "</span></td>";
+        '<td><span class="pill ' + pillCls + '">' + pillTxt + "</span>" + tags + "</td>" +
+        "<td>" + actions + "</td>";
       tb.appendChild(tr);
+    });
+    tb.querySelectorAll("button[data-act]").forEach(function (btn) {
+      btn.addEventListener("click", function () { bookingAction(btn.getAttribute("data-act"), btn.getAttribute("data-id")); });
     });
   }
   $("refresh-bookings").addEventListener("click", loadBookings);
+  $("show-archived").addEventListener("change", loadBookings);
+
+  async function postBooking(url, body) {
+    var r = await (await fetch(url, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body)
+    })).json();
+    alertIn($("bookings-alert"), r.ok ? r.message : (r.error || "Error"), r.ok ? "ok" : "err");
+    if (r.ok) loadBookings();
+    return r;
+  }
+
+  function bookingAction(act, id) {
+    var b = bookingsCache[id];
+    if (act === "edit") { openEditModal(b); return; }
+    if (act === "delete") {
+      if (confirm("Permanently delete this booking for " + (b ? b.name : "") + "? This frees the time slot and cannot be undone.")) {
+        postBooking("/api/admin/bookings/delete", { id: id });
+      }
+    } else if (act === "cancel") {
+      if (confirm("Cancel this booking for " + (b ? b.name : "") + "? The record is kept (marked cancelled) and the time slot reopens.")) {
+        postBooking("/api/admin/bookings/cancel", { id: id });
+      }
+    } else if (act === "archive") {
+      postBooking("/api/admin/bookings/archive", { id: id, archived: true });
+    } else if (act === "unarchive") {
+      postBooking("/api/admin/bookings/archive", { id: id, archived: false });
+    }
+  }
+
+  // ---- Edit modal ----
+  function openEditModal(b) {
+    if (!b) return;
+    $("edit-id").value = b.id;
+    $("edit-when").textContent = b.when;
+    $("edit-name").value = b.name || "";
+    $("edit-phone").value = b.phone || "";
+    $("edit-email").value = b.email || "";
+    $("edit-service").value = b.service || "";
+    $("edit-amount").value = (b.amount_cents != null ? (b.amount_cents / 100) : "");
+    $("edit-payment").value = b.payment_status || "pending";
+    $("edit-notes").value = b.notes || "";
+    $("edit-alert").className = "alert";
+    $("edit-modal").classList.add("show");
+  }
+  $("edit-cancel").addEventListener("click", function () { $("edit-modal").classList.remove("show"); });
+
+  async function saveEditedBooking() {
+    var payload = {
+      id: $("edit-id").value, name: $("edit-name").value, phone: $("edit-phone").value,
+      email: $("edit-email").value, service: $("edit-service").value,
+      amount: $("edit-amount").value, payment_status: $("edit-payment").value, notes: $("edit-notes").value
+    };
+    return (await fetch("/api/admin/bookings/update", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload)
+    })).json();
+  }
+
+  $("edit-save").addEventListener("click", async function () {
+    var r = await saveEditedBooking();
+    if (r.ok) { $("edit-modal").classList.remove("show"); alertIn($("bookings-alert"), r.message, "ok"); loadBookings(); }
+    else alertIn($("edit-alert"), r.error || "Error", "err");
+  });
+
+  // Save current edits (so the edited Service prints), then open the invoice.
+  $("edit-invoice").addEventListener("click", async function () {
+    var id = $("edit-id").value;
+    var r = await saveEditedBooking();
+    if (!r.ok) { alertIn($("edit-alert"), r.error || "Could not save before invoicing.", "err"); return; }
+    loadBookings();
+    window.open("/invoice.html?booking_id=" + encodeURIComponent(id), "_blank");
+  });
 
   // ---- Customers ----
   async function loadCustomers() {
@@ -221,17 +323,71 @@
     if (!r.ok || !r.customers.length) { $("customers-empty").style.display = "block"; $("customers-table").style.display = "none"; return; }
     $("customers-empty").style.display = "none"; $("customers-table").style.display = "table";
     r.customers.forEach(function (c) {
+      var addr = c.address ? esc(c.address).replace(/\n/g, "<br>") : "—";
+      var noteFlag = c.has_notes ? ' <span class="pill" style="background:#fdf1dd;color:#9a6b1e;">notes</span>' : "";
       var tr = document.createElement("tr");
       tr.innerHTML =
-        "<td>" + esc(c.name) + "</td>" +
+        "<td>" + esc(c.name) + noteFlag + "</td>" +
         '<td><a href="mailto:' + esc(c.email) + '">' + esc(c.email) + "</a></td>" +
         "<td>" + esc(c.phone || "—") + "</td>" +
-        "<td>" + esc(c.address || "—") + "</td>" +
-        "<td>" + esc(c.bookings) + "</td>";
+        "<td>" + addr + "</td>" +
+        "<td>" + esc(c.bookings) + "</td>" +
+        '<td><button class="btn btn-ghost btn-sm" data-client="' + c.id + '">Manage</button></td>';
       tb.appendChild(tr);
+    });
+    tb.querySelectorAll("button[data-client]").forEach(function (btn) {
+      btn.addEventListener("click", function () { openClientModal(btn.getAttribute("data-client")); });
     });
   }
   $("refresh-customers").addEventListener("click", loadCustomers);
+
+  // ---- Client management modal ----
+  async function openClientModal(id) {
+    var r = await (await fetch("/api/admin/client?id=" + encodeURIComponent(id))).json();
+    if (!r.ok) { alert(r.error || "Could not load client."); return; }
+    var c = r.client;
+    $("client-id").value = c.id;
+    $("client-name").textContent = c.name;
+    $("client-contact").innerHTML = '<a href="mailto:' + esc(c.email) + '">' + esc(c.email) + "</a>" +
+      (c.phone ? " · " + esc(c.phone) : "");
+    $("client-address").textContent = c.address || "";
+    // Bookings
+    var tb = $("client-bookings").querySelector("tbody"); tb.innerHTML = "";
+    if (!r.bookings.length) {
+      $("client-bookings-empty").style.display = "block"; $("client-bookings").style.display = "none";
+    } else {
+      $("client-bookings-empty").style.display = "none"; $("client-bookings").style.display = "table";
+      r.bookings.forEach(function (b) {
+        var pay = b.payment_status === "unpaid_request" ? "reserved (unpaid)" : b.payment_status;
+        if (b.status === "cancelled") pay += " · cancelled";
+        var tr = document.createElement("tr");
+        tr.innerHTML = "<td>" + esc(b.when) + "</td><td>" + esc(b.service || "—") + "</td>" +
+          "<td>" + esc(b.amount_display) + "</td><td>" + esc(pay) + "</td>";
+        tb.appendChild(tr);
+      });
+    }
+    // Client's own notes (from bookings)
+    if (r.client_notes.length) {
+      $("client-notes-from").innerHTML = r.client_notes.map(function (n) {
+        return '<p style="margin:.3em 0;"><span class="muted">' + esc(n.when) + ':</span> ' + esc(n.text) + "</p>";
+      }).join("");
+    } else {
+      $("client-notes-from").innerHTML = '<span class="muted">No notes from this client.</span>';
+    }
+    // Dr. Corey's private notes
+    $("corey-notes").value = c.corey_notes || "";
+    $("corey-notes-alert").className = "alert";
+    $("client-modal").classList.add("show");
+  }
+  $("client-close").addEventListener("click", function () { $("client-modal").classList.remove("show"); });
+  $("corey-notes-save").addEventListener("click", async function () {
+    var r = await (await fetch("/api/admin/client/notes", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: $("client-id").value, corey_notes: $("corey-notes").value })
+    })).json();
+    alertIn($("corey-notes-alert"), r.ok ? r.message : (r.error || "Error"), r.ok ? "ok" : "err");
+    if (r.ok) loadCustomers();
+  });
 
   // ---- Contacts ----
   async function loadContacts() {

@@ -29,14 +29,17 @@
 <section class="block" id="dash-view" style="display:none;">
   <div class="container">
     <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;">
-      <h1 class="mt-0">Admin Dashboard</h1>
+      <div>
+        <h1 class="mt-0" style="margin-bottom:2px;">Admin Dashboard</h1>
+        <p class="muted" style="margin:0;font-size:.9rem;">Signed in as <strong id="admin-name">Dr. Jon M. Corey</strong></p>
+      </div>
       <button class="btn btn-ghost btn-sm" id="logout-btn">Sign Out</button>
     </div>
 
     <div class="tabs">
       <button class="tab-btn active" data-tab="availability">Availability</button>
       <button class="tab-btn" data-tab="bookings">Bookings</button>
-      <button class="tab-btn" data-tab="customers">Customers</button>
+      <button class="tab-btn" data-tab="customers">Clients</button>
       <button class="tab-btn" data-tab="inquiries">Inquiries</button>
       <button class="tab-btn" data-tab="settings">Settings</button>
     </div>
@@ -87,13 +90,19 @@
     <!-- BOOKINGS -->
     <div class="tab-panel" id="tab-bookings">
       <div class="card">
-        <div style="display:flex;justify-content:space-between;align-items:center;">
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;">
           <h3 class="mt-0">Bookings</h3>
-          <button class="btn btn-ghost btn-sm" id="refresh-bookings">Refresh</button>
+          <div style="display:flex;align-items:center;gap:16px;">
+            <label style="display:inline-flex;align-items:center;gap:6px;font-weight:400;font-size:.9rem;margin:0;">
+              <input type="checkbox" id="show-archived" style="width:auto;"> Show archived
+            </label>
+            <button class="btn btn-ghost btn-sm" id="refresh-bookings">Refresh</button>
+          </div>
         </div>
+        <div id="bookings-alert" class="alert"></div>
         <div class="table-wrap">
           <table class="data" id="bookings-table">
-            <thead><tr><th>When</th><th>Name</th><th>Contact</th><th>Service</th><th>Amount</th><th>Payment</th></tr></thead>
+            <thead><tr><th>When</th><th>Name</th><th>Contact</th><th>Service</th><th>Amount</th><th>Payment</th><th>Actions</th></tr></thead>
             <tbody></tbody>
           </table>
         </div>
@@ -101,20 +110,21 @@
       </div>
     </div>
 
-    <!-- CUSTOMERS -->
+    <!-- CLIENTS / CLIENT MANAGEMENT -->
     <div class="tab-panel" id="tab-customers">
       <div class="card">
         <div style="display:flex;justify-content:space-between;align-items:center;">
-          <h3 class="mt-0">Customers</h3>
+          <h3 class="mt-0">Client Management</h3>
           <button class="btn btn-ghost btn-sm" id="refresh-customers">Refresh</button>
         </div>
+        <p class="muted" style="font-size:.9rem;">One record per client, built from their bookings. Click <strong>Manage</strong> to see their history and add private notes.</p>
         <div class="table-wrap">
           <table class="data" id="customers-table">
-            <thead><tr><th>Name</th><th>Email</th><th>Phone</th><th>Address</th><th>Bookings</th></tr></thead>
+            <thead><tr><th>Name</th><th>Email</th><th>Phone</th><th>Address</th><th>Bookings</th><th></th></tr></thead>
             <tbody></tbody>
           </table>
         </div>
-        <p class="muted" id="customers-empty" style="display:none;">No customers yet.</p>
+        <p class="muted" id="customers-empty" style="display:none;">No clients yet.</p>
       </div>
     </div>
 
@@ -197,6 +207,74 @@
     </div>
   </div>
 </section>
+
+<!-- Edit booking modal -->
+<div class="modal-backdrop" id="edit-modal">
+  <div class="modal" style="max-width:520px;">
+    <h3>Edit Booking</h3>
+    <p class="muted" id="edit-when" style="margin-top:-6px;"></p>
+    <div id="edit-alert" class="alert"></div>
+    <input type="hidden" id="edit-id">
+    <div class="grid-2">
+      <div class="form-row"><label>Name</label><input type="text" id="edit-name"></div>
+      <div class="form-row"><label>Phone</label><input type="tel" id="edit-phone"></div>
+    </div>
+    <div class="form-row"><label>Email</label><input type="email" id="edit-email"></div>
+    <div class="form-row"><label>Service</label><input type="text" id="edit-service"></div>
+    <div class="grid-2">
+      <div class="form-row"><label>Amount (USD)</label><input type="number" id="edit-amount" min="0" step="1"></div>
+      <div class="form-row">
+        <label>Payment Status</label>
+        <select id="edit-payment">
+          <option value="pending">pending</option>
+          <option value="unpaid_request">reserved (unpaid)</option>
+          <option value="paid">paid</option>
+        </select>
+      </div>
+    </div>
+    <div class="form-row"><label>Notes</label><textarea id="edit-notes"></textarea></div>
+    <div class="modal-actions" style="justify-content:space-between;">
+      <button class="btn btn-ghost" id="edit-invoice">🧾 View / Print Invoice</button>
+      <div style="display:flex;gap:12px;">
+        <button class="btn btn-ghost" id="edit-cancel">Cancel</button>
+        <button class="btn btn-primary" id="edit-save">Save Changes</button>
+      </div>
+    </div>
+    <p class="hint" style="margin-top:8px;">The <strong>Service</strong> above prints as the invoice line item. "View / Print Invoice" saves your changes first, then opens the invoice.</p>
+  </div>
+</div>
+
+<!-- Client management modal -->
+<div class="modal-backdrop" id="client-modal">
+  <div class="modal" style="max-width:640px;max-height:88vh;overflow:auto;">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;">
+      <h3 style="margin:0;" id="client-name">Client</h3>
+      <button class="btn btn-ghost btn-sm" id="client-close">Close</button>
+    </div>
+    <p class="muted" id="client-contact" style="margin:6px 0 0;"></p>
+    <p class="muted" id="client-address" style="margin:4px 0 0;white-space:pre-line;"></p>
+
+    <div class="section-label">Booking History</div>
+    <div class="table-wrap">
+      <table class="data" id="client-bookings">
+        <thead><tr><th>When</th><th>Service</th><th>Amount</th><th>Payment</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <p class="muted" id="client-bookings-empty" style="display:none;">No bookings on record.</p>
+
+    <div class="section-label">Client Notes for Rev. Corey <span class="muted" style="font-weight:400;font-size:.8rem;">(from the client)</span></div>
+    <div id="client-notes-from" class="muted" style="font-size:.92rem;"></div>
+
+    <div class="section-label">Client Notes By Dr. Corey <span class="muted" style="font-weight:400;font-size:.8rem;">(private)</span></div>
+    <div id="corey-notes-alert" class="alert"></div>
+    <input type="hidden" id="client-id">
+    <div class="form-row">
+      <textarea id="corey-notes" style="min-height:120px;" placeholder="Private notes about this client — visible only in the admin."></textarea>
+    </div>
+    <button class="btn btn-primary" id="corey-notes-save">Save Notes</button>
+  </div>
+</div>
 
 <div id="site-footer"></div>
 <script src="/js/layout.js"></script>

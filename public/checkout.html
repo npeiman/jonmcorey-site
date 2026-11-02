@@ -33,9 +33,34 @@
           <label for="email">Email Address <span class="req">*</span></label>
           <input type="email" id="email" required autocomplete="email">
         </div>
+        <div class="section-label">Billing Address</div>
         <div class="form-row">
-          <label for="address">Mailing Address</label>
-          <input type="text" id="address" autocomplete="street-address" placeholder="Street, City, State ZIP">
+          <label for="address">Address Line 1 <span class="req">*</span></label>
+          <input type="text" id="address" autocomplete="address-line1" placeholder="Street address" required>
+        </div>
+        <div class="form-row">
+          <label for="address2">Address Line 2</label>
+          <input type="text" id="address2" autocomplete="address-line2" placeholder="Apartment, suite, unit (optional)">
+        </div>
+        <div class="grid-2">
+          <div class="form-row">
+            <label for="city">City <span class="req">*</span></label>
+            <input type="text" id="city" autocomplete="address-level2" required>
+          </div>
+          <div class="form-row">
+            <label for="state">State <span class="req">*</span></label>
+            <input type="text" id="state" autocomplete="address-level1" required>
+          </div>
+        </div>
+        <div class="grid-2">
+          <div class="form-row">
+            <label for="zip">ZIP / Postal Code <span class="req">*</span></label>
+            <input type="text" id="zip" autocomplete="postal-code" required>
+          </div>
+          <div class="form-row">
+            <label for="country">Country</label>
+            <input type="text" id="country" value="United States" autocomplete="country-name">
+          </div>
         </div>
         <div class="form-row">
           <label for="service">Type of Service</label>
@@ -54,11 +79,9 @@
           </select>
         </div>
         <div class="form-row">
-          <label for="notes">Notes for Rev. Corey</label>
+          <label for="notes">Client Notes for Rev. Corey</label>
           <textarea id="notes" placeholder="Anything that would help us prepare for your session."></textarea>
         </div>
-        <button type="submit" class="btn btn-primary" id="submit-btn" disabled>Review Booking</button>
-        <p class="hint" id="pay-note"></p>
       </form>
     </div>
 
@@ -75,13 +98,26 @@
           <p style="display:flex;justify-content:space-between;font-size:1.2rem;">
             <span><strong>Total</strong></span><span><strong id="s-price"></strong></span>
           </p>
+
+          <div class="section-label" style="margin-top:18px;">Payment Method</div>
+          <label class="pay-opt">
+            <input type="radio" name="paymethod" value="card" checked>
+            <span><strong>Debit / Credit Card</strong><br><span class="muted" style="font-size:.85rem;">Pay now on our secure card page</span></span>
+          </label>
+          <label class="pay-opt">
+            <input type="radio" name="paymethod" value="in_person">
+            <span><strong>Check or Cash</strong><br><span class="muted" style="font-size:.85rem;">Reserve now, pay in person</span></span>
+          </label>
+
+          <button type="button" class="btn btn-primary mt-2" id="checkout-btn" style="width:100%;" disabled>Checkout</button>
+          <p class="hint" id="pay-note"></p>
         </div>
         <div id="summary-error" style="display:none;" class="alert show alert-err">
           That time could not be found or is no longer available.
           <a href="/calendar">Choose another time &rarr;</a>
         </div>
       </div>
-      <p class="hint text-center mt-2">🔒 Payments are processed securely by Stripe.</p>
+      <p class="hint text-center mt-2">🔒 Card payments are processed securely by Stripe.</p>
       <p class="text-center mt-1"><a href="/calendar" class="btn btn-ghost btn-sm">&larr; Back to Calendar</a></p>
     </aside>
   </div>
@@ -108,11 +144,17 @@
   var qDate = params.get("date");
   var qHour = params.get("hour");
   var form = document.getElementById("checkout-form");
-  var btn = document.getElementById("submit-btn");
+  var btn = document.getElementById("checkout-btn");
   var alertBox = document.getElementById("alert");
   var payNote = document.getElementById("pay-note");
   var modal = document.getElementById("confirm-modal");
   var quote = null, stripeConfigured = false;
+
+  function payMethod() {
+    var el = document.querySelector('input[name="paymethod"]:checked');
+    return el ? el.value : "card";
+  }
+  function $(id) { return document.getElementById(id); }
 
   function showAlert(msg, kind) {
     alertBox.className = "alert show " + (kind === "ok" ? "alert-ok" : "alert-err");
@@ -139,33 +181,54 @@
       document.getElementById("s-price").textContent = quote.price_cents > 0 ? quote.price_display : "Complimentary";
       document.getElementById("summary").style.display = "block";
       btn.disabled = false;
-      payNote.textContent = quote.price_cents > 0
-        ? (stripeConfigured
-            ? "On the next step you'll confirm, then enter your card details on our secure payment page to pay " + quote.price_display + "."
-            : "Online payment isn't enabled yet; your booking will be reserved and the office will arrange payment.")
-        : "This session is complimentary — no payment required.";
+      updatePayNote();
     } catch (err) {
       document.getElementById("summary-loading").style.display = "none";
       document.getElementById("summary-error").style.display = "block";
     }
   }
 
-  // Step 1: show the confirmation modal
-  form.addEventListener("submit", function (e) {
-    e.preventDefault();
+  function updatePayNote() {
     if (!quote) return;
-    if (!form.name.value.trim() || !form.email.value.trim() || !form.phone.value.trim()) {
-      showAlert("Please fill in your name, email, and phone number.", "err");
+    if (quote.price_cents <= 0) { payNote.textContent = "This session is complimentary — no payment required."; return; }
+    if (payMethod() === "in_person") {
+      payNote.textContent = "Your session will be reserved; please bring a check or cash (" + quote.price_display + ") to your session.";
+    } else {
+      payNote.textContent = stripeConfigured
+        ? "You'll confirm, then enter your card details on our secure payment page to pay " + quote.price_display + "."
+        : "Card payment isn't enabled yet; your booking will be reserved and the office will arrange the " + quote.price_display + " payment.";
+    }
+  }
+  Array.prototype.forEach.call(document.querySelectorAll('input[name="paymethod"]'), function (r) {
+    r.addEventListener("change", updatePayNote);
+  });
+
+  function requiredFilled() {
+    var ids = ["name", "phone", "email", "address", "city", "state", "zip"];
+    for (var i = 0; i < ids.length; i++) { if (!$(ids[i]).value.trim()) return false; }
+    return true;
+  }
+
+  // Step 1: validate + show the confirmation modal
+  btn.addEventListener("click", function () {
+    if (!quote) return;
+    if (!requiredFilled()) {
+      showAlert("Please complete your name, phone, email, and billing address (Line 1, City, State, ZIP).", "err");
       return;
     }
-    document.getElementById("confirm-text").textContent =
+    var method = payMethod();
+    $("confirm-text").textContent =
       "You're booking a one-hour session with Rev. Jon M. Corey on " +
       quote.date_pretty + " at " + quote.start_label + " – " + quote.end_label + ". Do you wish to confirm this booking?";
-    document.getElementById("confirm-pay").textContent = quote.price_cents > 0
-      ? (stripeConfigured
-          ? "You will now be taken to our secure payment page to enter your card details and pay " + quote.price_display + "."
-          : "Your session will be reserved and the office will contact you to arrange the " + quote.price_display + " payment.")
-      : "No payment is required for this complimentary session.";
+    if (quote.price_cents <= 0) {
+      $("confirm-pay").textContent = "No payment is required for this complimentary session.";
+    } else if (method === "in_person") {
+      $("confirm-pay").textContent = "Your session will be reserved. Please pay " + quote.price_display + " by check or cash in person.";
+    } else {
+      $("confirm-pay").textContent = stripeConfigured
+        ? "You will now be taken to our secure payment page to enter your card details and pay " + quote.price_display + "."
+        : "Your session will be reserved and the office will contact you to arrange the " + quote.price_display + " payment.";
+    }
     modal.classList.add("show");
   });
 
@@ -173,16 +236,18 @@
     modal.classList.remove("show");
   });
 
-  // Step 2: confirmed — create booking and go to Stripe / thank-you
+  // Step 2: confirmed — create booking and go to card page / thank-you
   document.getElementById("modal-confirm").addEventListener("click", async function () {
     var mc = document.getElementById("modal-confirm");
     mc.disabled = true; mc.textContent = "Processing…";
     var payload = {
       date: quote.date, hour: quote.hour,
-      name: form.name.value, phone: form.phone.value, email: form.email.value,
-      address: document.getElementById("address").value,
-      service: document.getElementById("service").value,
-      notes: document.getElementById("notes").value
+      name: $("name").value, phone: $("phone").value, email: $("email").value,
+      address: $("address").value, address2: $("address2").value,
+      city: $("city").value, state: $("state").value, zip: $("zip").value,
+      country: $("country").value,
+      service: $("service").value, notes: $("notes").value,
+      payment_method: payMethod()
     };
     try {
       var res = await fetch("/api/bookings", {
