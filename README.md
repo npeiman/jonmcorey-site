@@ -172,3 +172,23 @@ website/
     ├── js/admin.js           # Admin dashboard logic
     └── img/corey.jpg         # Rev. Corey's portrait
 ```
+
+---
+
+## Deployment history
+
+Documented for when "who deployed this and when" — see **`DEPLOYMENT_LOG.md`** for the
+full timeline. Summary:
+
+| Date | Mechanism | Target | What |
+|------|-----------|--------|------|
+| 2026-08-09 | initial deploy (rsync + `pag.service`) | srv002 `/opt/pag/website` | first live version of this site |
+| 2026-08-11 | git `d947f4d` | GitHub `npeiman/jonmcorey-site` | initial deployable commit |
+| 2026-10-18 | site removed into dated backup | srv002 `/root/jonmcorey-removal-20261018T16…` | pre-outage snapshot |
+| 2026-10-31 | **restore from 10-18 backup**, via Hermes | srv002 `/opt/pag/website` | jonmcorey.com back up (HTTP 200) |
+| 2026-11-02 | git `b6359db` + push | GitHub | admin client/invoice mgmt, booking actions, email |
+| 2026-11-07/10 | git content edits + publish script | GitHub | client content edits; `deploy/publish.sh` |
+
+> The live `/opt/pag/website` on srv002 is a **plain file copy, not a git checkout**
+> (`publish.sh` deploys via rsync). It is therefore only as current as the last sync —
+> see `DEPLOYMENT_LOG.md` and confirm the live tree matches git before relying on it.
