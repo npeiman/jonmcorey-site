@@ -20,7 +20,6 @@
       '<nav class="nav-links">' +
         link("/", "Home", "home") +
         link("/about", "About", "about") +
-        link("/calendar", "Book a Session", "calendar") +
         link("/contact", "Contact", "contact") +
         link("/calendar", "Schedule Now", "", "cta") +
       '</nav>' +
