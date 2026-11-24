@@ -38,15 +38,6 @@
           <label for="service">What can we help with?</label>
           <select id="service" name="service">
             <option value="">Select a service (optional)</option>
-            <option>Marriage / Wedding Officiant</option>
-            <option>Baptism or Dedication</option>
-            <option>Renewal of Vows</option>
-            <option>Memorial or Funeral Support</option>
-            <option>Pre-Marriage Planning</option>
-            <option>Individual, Couples, or Family Guidance</option>
-            <option>Hospitalization / Hospice Support</option>
-            <option>Relationship Crisis</option>
-            <option>Non-Traditional / Other</option>
           </select>
         </div>
         <div class="form-row">
@@ -86,6 +77,14 @@
   var form = document.getElementById("contact-form");
   var alertBox = document.getElementById("alert");
   var btn = document.getElementById("submit-btn");
+
+  // Service list comes from the admin-managed Services & Rates list.
+  fetch("/api/services").then(function (r) { return r.json(); }).then(function (d) {
+    var sel = document.getElementById("service");
+    (d.services || []).forEach(function (sv) {
+      var o = document.createElement("option"); o.textContent = sv.name; sel.appendChild(o);
+    });
+  }).catch(function () {});
 
   function showAlert(msg, kind) {
     alertBox.className = "alert show " + (kind === "ok" ? "alert-ok" : "alert-err");

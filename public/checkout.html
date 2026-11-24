@@ -63,20 +63,11 @@
           </div>
         </div>
         <div class="form-row">
-          <label for="service">Type of Service</label>
+          <label for="service">Type of Service <span class="req">*</span></label>
           <select id="service">
-            <option value="">Select a service (optional)</option>
-            <option>Marriage / Wedding Officiant</option>
-            <option>Baptism or Dedication</option>
-            <option>Renewal of Vows</option>
-            <option>Memorial or Funeral Support</option>
-            <option>Pre-Marriage Planning</option>
-            <option>Individual, Couples, or Family Guidance</option>
-            <option>Hospitalization / Hospice Support</option>
-            <option>Relationship Crisis</option>
-            <option>Complimentary Consultation</option>
-            <option>Non-Traditional / Other</option>
+            <option value="">Select a service…</option>
           </select>
+          <div class="hint">Your session rate is based on the service you choose.</div>
         </div>
         <div class="form-row">
           <label for="notes">Client Notes for Rev. Corey</label>
@@ -94,6 +85,7 @@
           <hr class="divider">
           <p style="margin:.3em 0;"><span class="muted">Date</span><br><strong id="s-date"></strong></p>
           <p style="margin:.3em 0;"><span class="muted">Time</span><br><strong id="s-time"></strong></p>
+          <p style="margin:.3em 0;"><span class="muted">Service</span><br><strong id="s-service">Select a service</strong></p>
           <hr class="divider">
           <p style="display:flex;justify-content:space-between;font-size:1.2rem;">
             <span><strong>Total</strong></span><span><strong id="s-price"></strong></span>
@@ -148,7 +140,7 @@
   var alertBox = document.getElementById("alert");
   var payNote = document.getElementById("pay-note");
   var modal = document.getElementById("confirm-modal");
-  var quote = null, stripeConfigured = false;
+  var quote = null, stripeConfigured = false, services = [];
 
   function payMethod() {
     var el = document.querySelector('input[name="paymethod"]:checked');
@@ -178,7 +170,13 @@
       quote = res.quote;
       document.getElementById("s-date").textContent = quote.date_pretty;
       document.getElementById("s-time").textContent = quote.start_label + " – " + quote.end_label + " (1 hour)";
-      document.getElementById("s-price").textContent = quote.price_cents > 0 ? quote.price_display : "Complimentary";
+      quote.price_cents = null; quote.price_display = "";
+      document.getElementById("s-price").textContent = "Select a service";
+      var sv = await (await fetch("/api/services")).json();
+      services = sv.services || [];
+      services.forEach(function (x) {
+        var o = document.createElement("option"); o.textContent = x.name; $("service").appendChild(o);
+      });
       document.getElementById("summary").style.display = "block";
       btn.disabled = false;
       updatePayNote();
@@ -188,8 +186,27 @@
     }
   }
 
+  // The chosen service sets the session rate (the server re-checks it on booking).
+  function applyService() {
+    alertBox.className = "alert";
+    var name = $("service").value, sv = null;
+    services.forEach(function (x) { if (x.name === name) sv = x; });
+    if (sv) {
+      quote.price_cents = sv.rate_cents; quote.price_display = sv.rate_display;
+      $("s-service").textContent = sv.name;
+      $("s-price").textContent = sv.rate_cents > 0 ? sv.rate_display : "Complimentary";
+    } else {
+      quote.price_cents = null; quote.price_display = "";
+      $("s-service").textContent = "Select a service";
+      $("s-price").textContent = "Select a service";
+    }
+    updatePayNote();
+  }
+  $("service").addEventListener("change", applyService);
+
   function updatePayNote() {
     if (!quote) return;
+    if (quote.price_cents == null) { payNote.textContent = "Choose a type of service to see your total."; return; }
     if (quote.price_cents <= 0) { payNote.textContent = "This session is complimentary — no payment required."; return; }
     if (payMethod() === "in_person") {
       payNote.textContent = "Your session will be reserved; please bring a check or cash (" + quote.price_display + ") to your session.";
@@ -212,6 +229,10 @@
   // Step 1: validate + show the confirmation modal
   btn.addEventListener("click", function () {
     if (!quote) return;
+    if (quote.price_cents == null) {
+      showAlert("Please choose a type of service so we can confirm your rate.", "err");
+      return;
+    }
     if (!requiredFilled()) {
       showAlert("Please complete your name, phone, email, and billing address (Line 1, City, State, ZIP).", "err");
       return;

@@ -39,6 +39,7 @@
     <div class="tabs">
       <button class="tab-btn active" data-tab="availability">Availability</button>
       <button class="tab-btn" data-tab="bookings">Bookings</button>
+      <button class="tab-btn" data-tab="services">Services &amp; Rates</button>
       <button class="tab-btn" data-tab="customers">Clients</button>
       <button class="tab-btn" data-tab="inquiries">Inquiries</button>
       <button class="tab-btn" data-tab="settings">Settings</button>
@@ -50,7 +51,7 @@
         <h3 class="mt-0">Set Available Hours</h3>
         <p class="muted" style="font-size:.92rem;">Pick a date (or a date range), then click the hours you want to make bookable.
         Highlighted = available. Grey = unavailable. Click to toggle. Booked hours are locked.
-        Set the price per one-hour session, then Save.</p>
+        Session rates are set per service under <a href="#" id="goto-rates">Services &amp; Rates</a>.</p>
         <div class="grid-2" style="max-width:640px;">
           <div class="form-row">
             <label for="a-date">Start date</label>
@@ -66,11 +67,6 @@
           <label>Apply to these weekdays</label>
           <div id="weekday-picker" style="display:flex;gap:8px;flex-wrap:wrap;"></div>
           <div class="hint">Only these weekdays within the range will be updated (e.g. weekdays only).</div>
-        </div>
-        <div class="form-row" style="max-width:320px;">
-          <label for="a-price">Price per session (USD)</label>
-          <input type="number" id="a-price" min="0" step="1" value="150">
-          <div class="hint">Enter 0 for a complimentary session.</div>
         </div>
         <div id="avail-alert" class="alert"></div>
         <div class="hour-grid" id="admin-hour-grid" style="margin:14px 0;"></div>
@@ -111,6 +107,25 @@
     </div>
 
     <!-- CLIENTS / CLIENT MANAGEMENT -->
+    <!-- SERVICES & RATES -->
+    <div class="tab-panel" id="tab-services">
+      <div class="card">
+        <h3 class="mt-0">Services &amp; Rates</h3>
+        <p class="muted" style="font-size:.92rem;">Set the rate (USD) for each one-hour service. These services appear in the
+        <strong>What can we help with?</strong> list on the Contact page and the <strong>Type of Service</strong> list at checkout.
+        The rate for the service a client chooses becomes the booking's <strong>Amount</strong>. Enter 0 for a complimentary service.
+        Unchecking <em>Active</em> hides a service from clients without losing it.</p>
+        <div id="services-alert" class="alert"></div>
+        <div class="table-wrap">
+          <table class="data" id="services-table">
+            <thead><tr><th>Service</th><th style="width:130px;">Rate (USD)</th><th style="width:70px;">Active</th><th style="width:170px;"></th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <div style="margin-top:14px;"><button class="btn btn-ghost" id="service-add">+ Add a Service</button></div>
+      </div>
+    </div>
+
     <div class="tab-panel" id="tab-customers">
       <div class="card">
         <div style="display:flex;justify-content:space-between;align-items:center;">
@@ -168,7 +183,7 @@
             <h3 class="mt-0">Thank-You Email Template</h3>
             <p class="muted" style="font-size:.9rem;">Sent to the customer after a successful booking. Use these variables:
             <code>{name}</code>, <code>{date}</code>, <code>{start_time}</code>, <code>{end_time}</code>,
-            <code>{service}</code>, <code>{amount}</code>.</p>
+            <code>{service}</code>, <code>{amount}</code>, <code>{payment}</code>.</p>
             <div id="tmpl-alert" class="alert"></div>
             <div class="form-row">
               <textarea id="thankyou_template" style="min-height:220px;font-family:var(--sans);"></textarea>
@@ -220,7 +235,8 @@
       <div class="form-row"><label>Phone</label><input type="tel" id="edit-phone"></div>
     </div>
     <div class="form-row"><label>Email</label><input type="email" id="edit-email"></div>
-    <div class="form-row"><label>Service</label><input type="text" id="edit-service"></div>
+    <div class="form-row"><label>Service</label><select id="edit-service"></select>
+      <div class="hint" id="edit-service-hint">Choosing a service fills in its rate below; you can still adjust the amount.</div></div>
     <div class="grid-2">
       <div class="form-row"><label>Amount (USD)</label><input type="number" id="edit-amount" min="0" step="1"></div>
       <div class="form-row">

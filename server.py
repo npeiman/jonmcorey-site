@@ -22,6 +22,7 @@ import hashlib
 import hmac
 import secrets
 import smtplib
+import threading
 import urllib.request
 import urllib.parse
 import mimetypes
@@ -44,7 +45,7 @@ HOST = os.environ.get("HOST", "")
 DAY_START_HOUR = 7
 DAY_END_HOUR = 21  # exclusive: last bookable start hour is 20 (8-9 PM)
 
-DEFAULT_THANKYOU = (
+LEGACY_THANKYOU = (
     "Dear {name},\n\n"
     "Thank you for booking a session with Rev. Jon M. Corey of the "
     "Professional Advisory Group.\n\n"
@@ -59,6 +60,9 @@ DEFAULT_THANKYOU = (
     "Rev. Jon M. Corey, PhD\n"
     "Professional Advisory Group"
 )
+# Current default adds the payment line ({payment}).
+DEFAULT_THANKYOU = LEGACY_THANKYOU.replace(
+    "  Amount: {amount}\n\n", "  Amount: {amount}\n  Payment: {payment}\n\n")
 
 # In-memory admin sessions: token -> created timestamp
 SESSIONS = {}
@@ -70,6 +74,22 @@ def get_db():
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     return conn
+
+
+# Starting service list with starting rates (cents). Rates are edited in
+# Admin -> Services & Rates; this only seeds an empty table.
+DEFAULT_SERVICES = [
+    ("Marriage / Wedding Officiant", 15000),
+    ("Baptism or Dedication", 15000),
+    ("Renewal of Vows", 15000),
+    ("Memorial or Funeral Support", 15000),
+    ("Pre-Marriage Planning", 15000),
+    ("Individual, Couples, or Family Guidance", 15000),
+    ("Hospitalization / Hospice Support", 15000),
+    ("Relationship Crisis", 15000),
+    ("Complimentary Consultation", 0),
+    ("Non-Traditional / Other", 15000),
+]
 
 
 def init_db():
@@ -85,6 +105,15 @@ def init_db():
             status TEXT NOT NULL DEFAULT 'open',  -- open | booked
             created_at TEXT NOT NULL,
             UNIQUE(date, hour)
+        );
+
+        CREATE TABLE IF NOT EXISTS services (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL UNIQUE,
+            rate_cents INTEGER NOT NULL DEFAULT 0,
+            sort_order INTEGER NOT NULL DEFAULT 0,
+            active INTEGER NOT NULL DEFAULT 1,
+            created_at TEXT NOT NULL
         );
 
         CREATE TABLE IF NOT EXISTS customers (
@@ -205,6 +234,17 @@ def init_db():
     c.execute("UPDATE admin_users SET display_name='Dr. Jon M. Corey' "
               "WHERE username='admin' AND (display_name IS NULL OR display_name='')")
 
+    # Upgrade the thank-you template only if the admin never edited it.
+    c.execute("UPDATE settings SET value=? WHERE key='thankyou_template' AND value=?",
+              (DEFAULT_THANKYOU, LEGACY_THANKYOU))
+
+    # Per-service billing rates: seed once, then managed in the admin.
+    if c.execute("SELECT COUNT(*) AS n FROM services").fetchone()["n"] == 0:
+        now = datetime.utcnow().isoformat()
+        for i, (name, cents) in enumerate(DEFAULT_SERVICES):
+            c.execute("INSERT INTO services(name, rate_cents, sort_order, active, created_at) "
+                      "VALUES (?,?,?,1,?)", (name, cents, i, now))
+
     conn.commit()
     conn.close()
 
@@ -320,6 +360,16 @@ def send_email(subject, body, to_addr=None, reply_to=None):
         return False, str(e)
 
 
+def send_email_async(subject, body, to_addr=None, reply_to=None):
+    """Send in the background so a slow or failing mail server never delays or
+    breaks a booking. The outcome is logged (visible in the service log)."""
+    def _run():
+        ok, info = send_email(subject, body, to_addr=to_addr, reply_to=reply_to)
+        print("[email] %s -> %s: %s" % (subject, to_addr or "notify_email",
+                                        "sent" if ok else "NOT SENT (%s)" % info), flush=True)
+    threading.Thread(target=_run, daemon=True).start()
+
+
 def render_thankyou(template, ctx):
     out = template or DEFAULT_THANKYOU
     for k, v in ctx.items():
@@ -421,30 +471,39 @@ def finalize_booking(conn, booking, paid=True):
     when_date = _pretty_date(booking["date"])
     start_t = hour_label(booking["hour"])
     end_t = hour_label(booking["hour"] + 1)
-    amount = money_str(booking["amount_cents"])
+    free = (booking["amount_cents"] or 0) <= 0
+    amount = "Complimentary" if free else money_str(booking["amount_cents"])
     service = booking["service"] or "Session"
+    if free:
+        payment = "No payment required"
+    elif paid:
+        payment = "Paid by card"
+    elif booking["payment_method"] == "in_person":
+        payment = "Due in person (check or cash)"
+    else:
+        payment = "To be arranged with Rev. Corey's office"
 
     # Notify Jon
     jon_body = (
         "%s booking via website\n\n"
         "Name: %s\nEmail: %s\nPhone: %s\nAddress: %s\n\n"
-        "Date: %s\nTime: %s - %s\nService: %s\nAmount: %s\nNotes: %s\n"
-        % ("PAID" if paid else "RESERVED (unpaid)",
+        "Date: %s\nTime: %s - %s\nService: %s\nAmount: %s\nPayment: %s\nNotes: %s\n"
+        % ("PAID" if (paid and not free) else "NEW",
            cust["name"], cust["email"], cust["phone"] or "", cust["address"] or "",
-           when_date, start_t, end_t, service, amount, booking["notes"] or "(none)")
+           when_date, start_t, end_t, service, amount, payment, booking["notes"] or "(none)")
     )
-    send_email("%s booking - %s" % ("PAID" if paid else "New", cust["name"]), jon_body,
-               reply_to=cust["email"])
+    send_email_async("New booking - %s - %s, %s" % (cust["name"], when_date, start_t), jon_body,
+                     reply_to=cust["email"])
 
     # Confirm to customer using the admin-defined template
     tmpl = get_setting("thankyou_template", DEFAULT_THANKYOU)
     cust_body = render_thankyou(tmpl, {
         "name": cust["name"], "date": when_date, "start_time": start_t,
         "end_time": end_t, "time": "%s - %s" % (start_t, end_t),
-        "service": service, "amount": amount,
+        "service": service, "amount": amount, "payment": payment,
     })
-    send_email("Your session with Rev. Jon M. Corey is confirmed", cust_body,
-               to_addr=cust["email"], reply_to=get_setting("notify_email"))
+    send_email_async("Your session with Rev. Jon M. Corey is confirmed", cust_body,
+                     to_addr=cust["email"], reply_to=get_setting("notify_email"))
 
 
 def _pretty_date(iso):
@@ -540,6 +599,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return self.api_day(qs)
         if path == "/api/availability/quote":
             return self.api_quote(qs)
+        if path == "/api/services":
+            return self.api_services()
+        if path == "/api/admin/services":
+            if not is_authed(self):
+                return self.send_error_json("unauthorized", 401)
+            return self.api_admin_services()
 
         if path == "/api/admin/session":
             authed = is_authed(self)
@@ -625,6 +690,14 @@ class Handler(http.server.BaseHTTPRequestHandler):
             if not is_authed(self):
                 return self.send_error_json("unauthorized", 401)
             return self.api_admin_booking_update()
+        if path == "/api/admin/services":
+            if not is_authed(self):
+                return self.send_error_json("unauthorized", 401)
+            return self.api_admin_service_save()
+        if path == "/api/admin/services/delete":
+            if not is_authed(self):
+                return self.send_error_json("unauthorized", 401)
+            return self.api_admin_service_delete()
         if path == "/api/admin/client/notes":
             if not is_authed(self):
                 return self.send_error_json("unauthorized", 401)
@@ -705,6 +778,71 @@ class Handler(http.server.BaseHTTPRequestHandler):
         }})
 
     # =======================================================================
+    # Services & rates
+    # =======================================================================
+    @staticmethod
+    def _service_json(r):
+        cents = r["rate_cents"]
+        return {"id": r["id"], "name": r["name"], "rate_cents": cents,
+                "rate_display": money_str(cents) if cents > 0 else "Complimentary",
+                "active": bool(r["active"])}
+
+    def api_services(self):
+        conn = get_db()
+        rows = conn.execute(
+            "SELECT * FROM services WHERE active=1 ORDER BY sort_order, id").fetchall()
+        conn.close()
+        return self.send_json({"ok": True, "services": [self._service_json(r) for r in rows]})
+
+    def api_admin_services(self):
+        conn = get_db()
+        rows = conn.execute("SELECT * FROM services ORDER BY sort_order, id").fetchall()
+        conn.close()
+        return self.send_json({"ok": True, "services": [self._service_json(r) for r in rows]})
+
+    def api_admin_service_save(self):
+        d = self.read_json_body()
+        name = (d.get("name") or "").strip()
+        if not name:
+            return self.send_error_json("Service name is required.")
+        try:
+            rate_cents = int(round(float(d.get("rate") if d.get("rate") not in (None, "") else 0) * 100))
+        except (ValueError, TypeError):
+            return self.send_error_json("Invalid rate.")
+        if rate_cents < 0 or rate_cents > 10000000:
+            return self.send_error_json("Rate must be between 0 and 100,000.")
+        active = 0 if d.get("active") in (False, 0, "0", "false") else 1
+        conn = get_db()
+        try:
+            if d.get("id"):
+                cur = conn.execute("UPDATE services SET name=?, rate_cents=?, active=? WHERE id=?",
+                                   (name, rate_cents, active, int(d["id"])))
+                if cur.rowcount == 0:
+                    conn.close()
+                    return self.send_error_json("Service not found.", 404)
+            else:
+                nxt = conn.execute("SELECT COALESCE(MAX(sort_order), -1) + 1 AS n FROM services").fetchone()["n"]
+                conn.execute("INSERT INTO services(name, rate_cents, sort_order, active, created_at) "
+                             "VALUES (?,?,?,?,?)",
+                             (name, rate_cents, nxt, active, datetime.utcnow().isoformat()))
+            conn.commit()
+        except sqlite3.IntegrityError:
+            conn.close()
+            return self.send_error_json("A service with that name already exists.")
+        conn.close()
+        return self.send_json({"ok": True, "message": "Service saved."})
+
+    def api_admin_service_delete(self):
+        d = self.read_json_body()
+        conn = get_db()
+        # Bookings keep the service name as text, so removing a service never
+        # alters existing bookings or invoices.
+        conn.execute("DELETE FROM services WHERE id=?", (int(d.get("id") or 0),))
+        conn.commit()
+        conn.close()
+        return self.send_json({"ok": True, "message": "Service removed."})
+
+    # =======================================================================
     # Contact
     # =======================================================================
     def api_contact(self):
@@ -778,6 +916,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
             conn.close()
             return self.send_error_json("Sorry, that time has just been booked.", 409)
 
+        # The service chosen sets the price (rates live in the services table;
+        # never trust a price from the browser).
+        svc = conn.execute("SELECT * FROM services WHERE name=? AND active=1", (service,)).fetchone()
+        if not svc:
+            conn.close()
+            return self.send_error_json("Please choose a type of service.")
+
         # Upsert client record by email (structured billing address)
         conn.execute(
             "INSERT INTO customers(name, address, address2, city, state, zip, country, phone, email, created_at) "
@@ -791,7 +936,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         cust = conn.execute("SELECT id FROM customers WHERE email=?", (email,)).fetchone()
         customer_id = cust["id"]
 
-        amount = slot["price_cents"]
+        amount = svc["rate_cents"]
         cur = conn.execute(
             "INSERT INTO bookings(customer_id, date, hour, service, notes, amount_cents, "
             "payment_status, payment_method, created_at) VALUES (?,?,?,?,?,?, 'pending', ?, ?)",

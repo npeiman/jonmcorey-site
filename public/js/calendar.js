@@ -123,9 +123,9 @@
       var info = byHour[h];
       if (info && info.status === "open") {
         openCount++;
-        html += '<div class="hour-cell open" data-hour="' + h + '" data-price="' + info.price_cents + '">' +
+        html += '<div class="hour-cell open" data-hour="' + h + '">' +
           '<div class="h-time">' + info.label + "</div>" +
-          '<div class="h-price">' + (info.price_cents > 0 ? info.price_display : "Complimentary") + "</div>" +
+          '<div class="h-price">Available</div>' +
           "</div>";
       } else if (info && info.status === "booked") {
         html += '<div class="hour-cell booked"><div class="h-time">' + info.label + "</div>" +
@@ -151,16 +151,26 @@
     $("hour-grid").querySelectorAll(".hour-cell").forEach(function (c) { c.classList.remove("selected"); });
     el.classList.add("selected");
     selectedHour = parseInt(el.getAttribute("data-hour"), 10);
-    selectedPrice = parseInt(el.getAttribute("data-price"), 10);
     var start = hourLabel(selectedHour), end = hourLabel(selectedHour + 1);
     $("sel-summary").textContent = fmtDateLong(selectedDate) + " · " + start + " – " + end + " (1 hour)";
-    $("sel-price").textContent = selectedPrice > 0 ? "Total: " + money(selectedPrice) : "Complimentary session";
+    $("sel-price").textContent = rateText;
     $("continue-btn").href = "/checkout?date=" + selectedDate + "&hour=" + selectedHour;
     $("selection-box").style.display = "block";
     $("selection-box").scrollIntoView({ behavior: "smooth", block: "nearest" });
   }
 
   function money(cents) { return "$" + (cents / 100).toFixed(2); }
+
+  // Rates are set per service; the exact total is shown at checkout once a
+  // service is chosen. Summarize the range here.
+  var rateText = "Your rate depends on the service you choose at checkout.";
+  fetch("/api/services").then(function (r) { return r.json(); }).then(function (d) {
+    var paid = (d.services || []).map(function (x) { return x.rate_cents; }).filter(function (c) { return c > 0; });
+    if (!paid.length) return;
+    var lo = Math.min.apply(null, paid), hi = Math.max.apply(null, paid);
+    rateText = (lo === hi ? "Session rate: " + money(lo) : "Session rates: " + money(lo) + " – " + money(hi)) +
+      " · exact rate shown at checkout based on your service.";
+  }).catch(function () {});
 
   $("prev-month").addEventListener("click", function () {
     view.setMonth(view.getMonth() - 1); selectedDate = null;

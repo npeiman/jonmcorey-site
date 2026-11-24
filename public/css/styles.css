@@ -90,11 +90,13 @@ img { max-width: 100%; display: block; }
 /* ---------- Hero ---------- */
 .hero {
   background: linear-gradient(160deg, var(--navy) 0%, var(--navy-dark) 100%);
-  color: var(--cream); padding: 64px 0;
+  color: var(--cream); padding: 48px 0 56px;
 }
 .hero-grid { display: grid; grid-template-columns: 1.15fr .85fr; gap: 48px; align-items: center; }
 .hero h1 { color: var(--white); font-size: 2.6rem; margin-bottom: .2em; }
 .hero .eyebrow { color: var(--gold); text-transform: uppercase; letter-spacing: .18em; font-size: .8rem; font-weight: 700; margin-bottom: 14px; }
+.hero .hero-tagline { font-family: var(--serif); font-style: italic; font-size: 2rem; color: var(--white); text-align: center; margin-bottom: 18px; padding-bottom: 14px; position: relative; }
+.hero .hero-tagline::after { content: ""; position: absolute; left: 50%; bottom: 0; width: 64px; height: 2px; background: var(--gold); transform: translateX(-50%); }
 .hero p.lead { font-size: 1.18rem; color: #dfe6ef; max-width: 46ch; }
 .hero-actions { margin-top: 28px; display: flex; gap: 14px; flex-wrap: wrap; }
 .hero-photo {
@@ -109,8 +111,12 @@ img { max-width: 100%; display: block; }
 }
 
 /* ---------- Sections ---------- */
-section.block { padding: 62px 0; }
+section.block { padding: 52px 0; }
+section.block .container.narrow > p:last-child { margin-bottom: 0; }
 section.alt { background: var(--cream-2); }
+/* Two tan sections in a row share one gap instead of stacking both paddings. */
+section.alt + section.alt { padding-top: 24px; }
+.page-head + section.block { padding-top: 40px; }
 .section-head { text-align: center; max-width: 680px; margin: 0 auto 42px; }
 .section-head .eyebrow { color: var(--gold-dark); text-transform: uppercase; letter-spacing: .16em; font-size: .78rem; font-weight: 700; }
 .section-head h2 { font-size: 2rem; margin-top: 6px; }
@@ -167,7 +173,7 @@ textarea { min-height: 110px; resize: vertical; }
 .alert-info { background: #eaf0f7; color: var(--navy); border: 1px solid #c4d4e8; }
 
 /* ---------- Page header ---------- */
-.page-head { background: var(--cream-2); border-bottom: 1px solid var(--line); padding: 48px 0; text-align: center; }
+.page-head { background: var(--cream-2); border-bottom: 1px solid var(--line); padding: 40px 0; text-align: center; }
 .page-head h1 { font-size: 2.2rem; }
 .page-head p { color: var(--muted); max-width: 60ch; margin: 8px auto 0; }
 
@@ -323,6 +329,11 @@ table.data tr:hover td { background: #fbf9f4; }
   .hero h1 { font-size: 2.1rem; }
 }
 @media (max-width: 560px) {
+  .hero { padding: 34px 0 40px; }
+  section.block { padding: 40px 0; }
+  section.alt + section.alt { padding-top: 16px; }
+  .page-head { padding: 32px 0; }
+  .page-head + section.block { padding-top: 32px; }
   .services { grid-template-columns: 1fr; }
   .nav { justify-content: center; }
 }

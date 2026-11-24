@@ -144,12 +144,10 @@
       if (r.ok) {
         hourState = r.state || {};
         DAY_START = r.day_start; DAY_END = r.day_end;
-        // Pre-select currently-open hours; note the existing price
-        var anyPrice = null;
+        // Pre-select currently-open hours
         Object.keys(hourState).forEach(function (h) {
-          if (hourState[h].status === "open") { selectedHours[h] = true; anyPrice = hourState[h].price_cents; }
+          if (hourState[h].status === "open") selectedHours[h] = true;
         });
-        if (anyPrice != null) $("a-price").value = (anyPrice / 100);
       }
     } catch (e) {}
     renderHourEditor();
@@ -176,7 +174,7 @@
       alertIn($("avail-alert"), "End date must be on or after the start date.", "err"); return;
     }
     var hours = Object.keys(selectedHours).map(Number);
-    var payload = { date: ds, hours: hours, price: $("a-price").value };
+    var payload = { date: ds, hours: hours };
     if (isRange) {
       payload.end_date = endDs;
       var wd = checkedWeekdays();
@@ -274,6 +272,28 @@
   }
 
   // ---- Edit modal ----
+  function fillServiceSelect(current) {
+    var sel = $("edit-service"); sel.innerHTML = '<option value="">— none —</option>';
+    var found = false;
+    servicesCache.forEach(function (sv) {
+      if (!sv.active && sv.name !== current) return;
+      var o = document.createElement("option"); o.value = sv.name; o.textContent = sv.name;
+      if (sv.name === current) found = true;
+      sel.appendChild(o);
+    });
+    if (current && !found) {   // older booking whose service is no longer in the list
+      var o = document.createElement("option"); o.value = current; o.textContent = current + " (not in list)";
+      sel.appendChild(o);
+    }
+    sel.value = current || "";
+  }
+  $("edit-service").addEventListener("change", function () {
+    var name = $("edit-service").value;
+    servicesCache.forEach(function (sv) {
+      if (sv.name === name) $("edit-amount").value = (sv.rate_cents / 100);
+    });
+  });
+
   function openEditModal(b) {
     if (!b) return;
     $("edit-id").value = b.id;
@@ -281,7 +301,7 @@
     $("edit-name").value = b.name || "";
     $("edit-phone").value = b.phone || "";
     $("edit-email").value = b.email || "";
-    $("edit-service").value = b.service || "";
+    fillServiceSelect(b.service || "");
     $("edit-amount").value = (b.amount_cents != null ? (b.amount_cents / 100) : "");
     $("edit-payment").value = b.payment_status || "pending";
     $("edit-notes").value = b.notes || "";
@@ -314,6 +334,55 @@
     if (!r.ok) { alertIn($("edit-alert"), r.error || "Could not save before invoicing.", "err"); return; }
     loadBookings();
     window.open("/invoice.html?booking_id=" + encodeURIComponent(id), "_blank");
+  });
+
+  // ---- Services & Rates ----
+  var servicesCache = [];
+  async function loadServices() {
+    var r = await (await fetch("/api/admin/services")).json();
+    if (!r.ok) return;
+    servicesCache = r.services;
+    var tb = $("services-table").querySelector("tbody"); tb.innerHTML = "";
+    servicesCache.forEach(function (sv) { tb.appendChild(serviceRow(sv)); });
+  }
+
+  function serviceRow(sv) {
+    var tr = document.createElement("tr");
+    tr.innerHTML =
+      '<td><input type="text" class="sv-name" value="' + esc(sv.name) + '"></td>' +
+      '<td><input type="number" class="sv-rate" min="0" step="1" value="' + (sv.rate_cents != null ? sv.rate_cents / 100 : "") + '"></td>' +
+      '<td style="text-align:center;"><input type="checkbox" class="sv-active"' + (sv.active ? " checked" : "") + '></td>' +
+      '<td><button class="btn btn-primary btn-sm sv-save">Save</button> ' +
+      '<button class="btn btn-ghost btn-sm sv-del">Delete</button></td>';
+    tr.querySelector(".sv-save").addEventListener("click", async function () {
+      var r = await (await fetch("/api/admin/services", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: sv.id || null, name: tr.querySelector(".sv-name").value,
+          rate: tr.querySelector(".sv-rate").value, active: tr.querySelector(".sv-active").checked
+        })
+      })).json();
+      if (r.ok) { alertIn($("services-alert"), (tr.querySelector(".sv-name").value.trim() || "Service") + " saved.", "ok"); loadServices(); }
+      else alertIn($("services-alert"), r.error || "Could not save.", "err");
+    });
+    tr.querySelector(".sv-del").addEventListener("click", async function () {
+      if (!sv.id) { tr.remove(); return; }
+      if (!confirm('Delete "' + sv.name + '"? Existing bookings keep their service name and amount. (To just hide it from clients, uncheck Active instead.)')) return;
+      var r = await (await fetch("/api/admin/services/delete", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: sv.id })
+      })).json();
+      if (r.ok) { alertIn($("services-alert"), r.message, "ok"); loadServices(); }
+      else alertIn($("services-alert"), r.error || "Could not delete.", "err");
+    });
+    return tr;
+  }
+  $("service-add").addEventListener("click", function () {
+    var tb = $("services-table").querySelector("tbody");
+    var tr = serviceRow({ id: null, name: "", rate_cents: 15000, active: true });
+    tb.appendChild(tr); tr.querySelector(".sv-name").focus();
+  });
+  $("goto-rates").addEventListener("click", function (e) {
+    e.preventDefault(); var b = document.querySelector('.tab-btn[data-tab="services"]'); if (b) b.click();
   });
 
   // ---- Customers ----
@@ -470,7 +539,7 @@
     if (r.ok) $("new_password").value = "";
   });
 
-  function loadAll() { loadDayState(); loadBookings(); loadCustomers(); loadContacts(); loadSettings(); }
+  function loadAll() { loadServices(); loadDayState(); loadBookings(); loadCustomers(); loadContacts(); loadSettings(); }
 
   // Default availability date = today
   var t = new Date();
